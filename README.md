@@ -51,4 +51,4 @@ of `origin`); `git push dev-sfyappdev main` goes to dev only. After a push that 
 ssh safeway-dev 'cd ~/driver && ~/bin/composer install --no-dev -o && php bin/console cache:clear'
 ```
 
-`.env` sets `DISPATCH_URL` to the dev Dispatch (`https://dispatch.safeway-dispatch.dev.rp021.webhelplogin.com`); a server's `.env.local` can override it. The dev server's `.env.local` and has `DRIVER_GPS_TESTER=1`.
+`.env` sets `DISPATCH_URL` to the dev Dispatch (`https://dispatch.safeway-dispatch.dev.rp021.webhelplogin.com`); a server's `.env.local` can override it. The dev server's `.env.local` has `DRIVER_GPS_TESTER=1`.

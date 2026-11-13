@@ -67,7 +67,8 @@
                 </div>
             </article>
         {% else %}
-            <p class="empty">{{ routes is empty ? 'No route for you today.' : 'All stops are done.' }}</p>
+            {% set any_stops = routes|filter(r => r.stops is not empty)|length > 0 %}
+            <p class="empty">{{ routes is empty ? 'No route for you today.' : (any_stops ? 'All stops are done.' : 'No stops on your route yet.') }}</p>
         {% endfor %}
         {% if total > 0 %}{{ ui.pager('app_driver_tasks', page, pages, from, to, total) }}{% endif %}
     </div>

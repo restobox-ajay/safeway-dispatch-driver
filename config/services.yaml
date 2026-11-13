@@ -10,3 +10,11 @@ services:
             - '../src/Kernel.php'
             - '../src/Driver/Api/DriverTokens.php'
             - '../src/Security/Driver/DriverUser.php'
+
+    # Symfony's built-in logger writes to stderr by default, which LiteSpeed/Apache turns into public/error_log (in the web folder).
+    # Log to var/log/<env>.log instead (warnings and up). No logging package needed.
+    logger:
+        class: Symfony\Component\HttpKernel\Log\Logger
+        arguments:
+            $minLevel: 'warning'
+            $output: '%kernel.logs_dir%/%kernel.environment%.log'

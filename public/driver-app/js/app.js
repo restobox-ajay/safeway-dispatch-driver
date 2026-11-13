@@ -593,11 +593,14 @@
         if (!next || !here) return false;
         var keep = here.querySelectorAll("[data-offline-banner], [data-gps-stale]");
         next.querySelectorAll("[data-offline-banner], [data-gps-stale]").forEach(function (n) { n.remove(); });
-        var y = window.scrollY;
+        // The page scrolls inside the phone frame's .app-screen (and the window on old layouts): keep both.
+        var scroller = document.querySelector(".app-screen");
+        var y = window.scrollY, sy = scroller ? scroller.scrollTop : 0;
         here.textContent = "";
         keep.forEach(function (n) { here.appendChild(n); });
         Array.prototype.slice.call(next.childNodes).forEach(function (n) { here.appendChild(document.adoptNode(n)); });
         window.scrollTo(0, y);
+        if (scroller) scroller.scrollTop = sy;
         document.dispatchEvent(new CustomEvent("swd:content"));
         refreshBanner();
         return true;

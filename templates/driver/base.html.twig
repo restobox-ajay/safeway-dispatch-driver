@@ -16,8 +16,13 @@
 </head>
 <body{% block body_class %}{% endblock %}>
 {% block body %}
-<div class="app-screen">
-    {% block screen %}{% endblock %}
+{# On a wide screen the app sits in a centred phone frame; on a phone the frame is the whole screen (safeway.css). #}
+<div class="phone-frame-wrap">
+    <div class="phone-frame">
+        <div class="app-screen">
+            {% block screen %}{% endblock %}
+        </div>
+    </div>
 </div>
 {% endblock %}
 {% block scripts %}{% endblock %}

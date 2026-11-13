@@ -41,6 +41,30 @@
         </div>
     </main>
 
+    {# Bottom tabs, as in a phone app; `tab` marks the active one. #}
+    <nav class="bottom-nav" aria-label="Main">
+        <a href="{{ path('app_driver_tasks') }}"{{ tab == 'upcoming' ? ' class="active" aria-current="page"' }}>
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s7-7.58 7-12a7 7 0 1 0-14 0c0 4.42 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/></svg></span>
+            Upcoming
+        </a>
+        <a href="{{ path('app_driver_completed') }}"{{ tab == 'completed' ? ' class="active" aria-current="page"' }}>
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><polyline points="8 12.5 11 15.5 16 9.5"/></svg></span>
+            Completed
+        </a>
+        <button type="button" data-messages-open>
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+            Messages
+            <span class="badge-count" data-messages-badge hidden></span>
+        </button>
+        <a href="{{ path('app_driver_hours') }}"{{ tab == 'hours' ? ' class="active" aria-current="page"' }}>
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg></span>
+            Hours
+        </a>
+    </nav>
+
+    {# Toast host inside the frame: SWD.toast() uses an existing [data-toast] before adding its own to <body>. #}
+    <div class="toast" data-toast role="status"></div>
+
     {# Menu drawer #}
     <div class="sidebar-overlay" data-sidebar-overlay hidden>
         <aside class="sidebar-drawer">

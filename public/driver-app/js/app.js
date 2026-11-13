@@ -420,6 +420,7 @@
     if (navigator.geolocation && watchId === null && !document.hidden) {
       gpsStartedAt = Date.now();
       watchId = navigator.geolocation.watchPosition(onFix, function (err) {
+        if (fakeGps) return; // the GPS tester's location stands in for the phone's: its errors don't apply
         gpsError = err.code === err.PERMISSION_DENIED ? "denied" : err.code === err.POSITION_UNAVAILABLE ? "unavailable" : "timeout";
         updateGpsUi();
         if (err.code === err.PERMISSION_DENIED) SWD.toast("Allow location so Dispatch can see where you are.");
@@ -437,6 +438,7 @@
   });
 
   function gpsState() {
+    if (fakeGps && lastFix) return { level: "ok", reason: null, age: Math.max(0, Date.now() - lastFix.at) };
     if (!navigator.geolocation) return { level: "lost", reason: "unsupported" };
     var age = lastFix ? Math.max(0, Date.now() - lastFix.at) : null;
     return { level: age === null || age > GPS_LOST ? "lost" : age > GPS_STALE ? "stale" : "ok", reason: gpsError, age: age };

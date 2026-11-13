@@ -1,5 +1,9 @@
 twig:
     file_name_pattern: '*.twig'
+    globals:
+        # Test servers only: the GPS tester in the menu (sends a chosen location as the driver's position).
+        # Off unless DRIVER_GPS_TESTER=1. Never set it in production.
+        driver_gps_tester: '%env(bool:default::DRIVER_GPS_TESTER)%'
 
 when@test:
     twig:

@@ -343,6 +343,10 @@
   var lastFix = null, lastSent = null, lastSentAt = 0, gpsError = null, gpsStartedAt = 0, watchId = null, wakeLock = null;
   try { lastFix = JSON.parse(localStorage.getItem("swd-last-fix") || "null"); } catch (e) { lastFix = null; }
   if (lastFix && String(lastFix.driver) !== DRIVER) lastFix = null;
+  // GPS tester (test servers only): while a test location is on, the phone's real fixes are ignored. Only while the
+  // tester is on this server: a flag left on a phone after the tester was switched off must not block real GPS.
+  var fakeGps = false;
+  try { fakeGps = !!document.querySelector("[data-gps-tester-overlay]") && localStorage.getItem("swd-fake-gps") === "1"; } catch (e) { fakeGps = false; }
 
   SWD.gps = function () { return lastFix && Date.now() - lastFix.at < GPS_STALE ? { lat: lastFix.lat, lng: lastFix.lng, accuracy: lastFix.accuracy } : null; };
 
@@ -364,14 +368,16 @@
     lastSentAt = Date.now();
     var p = positionOf(fix, at);
     return SWD.call("POST", "positions", { positions: [p] }).then(function (r) {
-      if (r.ok) { flushPositions(); return; }
+      if (r.ok) { flushPositions(); return r; }
       if (r.offline || r.status >= 500 || r.status === 0) {
         store("positions", "readwrite", function (s) { s.add({ driver: DRIVER, p: p }); }).catch(function () {});
       }
+      return r;
     });
   }
 
   function onFix(pos) {
+    if (fakeGps) return;
     lastFix = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, at: pos.timestamp || Date.now(), driver: DRIVER };
     try { localStorage.setItem("swd-last-fix", JSON.stringify(lastFix)); } catch (e) { /* storage full or blocked */ }
     gpsError = null;
@@ -381,6 +387,8 @@
   }
   // The heartbeat: at least one position a minute, the latest fix again when standing still.
   setInterval(function () {
+    // A test location stays "where the driver is" until real GPS is switched back on: keep it fresh.
+    if (fakeGps && lastFix && Date.now() - lastSentAt >= HEARTBEAT) lastFix.at = Date.now();
     var f = SWD.gps();
     if (f && Date.now() - lastSentAt >= HEARTBEAT) sendPosition(f, Date.now());
   }, 15000);
@@ -615,6 +623,107 @@
   }
   if (LIVE) setInterval(function () { liveRefresh(false); }, 60000);
 
+  // ---------------------------------------------------------------- GPS tester (test servers only, DRIVER_GPS_TESTER=1)
+  var tester = document.querySelector("[data-gps-tester-overlay]");
+  if (tester) {
+    var lastPing = function () {
+      try { return JSON.parse(localStorage.getItem("swd-last-ping") || "null"); } catch (e) { return null; }
+    };
+    var q = function (sel) { return tester.querySelector(sel); };
+    var showTester = function () {
+      var p = lastPing();
+      q("[data-gps-tester-last]").textContent = p ? p.lat.toFixed(6) + ", " + p.lng.toFixed(6) : "None yet";
+      q("[data-gps-tester-ago]").textContent = p ? ago(p.at) : "";
+      q("[data-gps-tester-mode]").textContent = fakeGps ? "Using a test location — real GPS is ignored until you tap Use real GPS." : "Using real GPS.";
+    };
+    // Sends the location now (no 15 s / 25 m throttle) and keeps it as the phone's fix until real GPS is back on.
+    var report = function (lat, lng) {
+      if (!isFinite(lat) || !isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) { SWD.toast("Enter a valid latitude and longitude."); return; }
+      fakeGps = true;
+      try { localStorage.setItem("swd-fake-gps", "1"); } catch (e) { /* this page only */ }
+      lastFix = { lat: lat, lng: lng, accuracy: 5, at: Date.now(), driver: DRIVER };
+      try { localStorage.setItem("swd-last-fix", JSON.stringify(lastFix)); } catch (e) { /* ignore */ }
+      gpsError = null;
+      updateGpsUi();
+      sendPosition(lastFix, lastFix.at).then(function (r) {
+        if (r && r.ok) {
+          try { localStorage.setItem("swd-last-ping", JSON.stringify({ lat: lat, lng: lng, at: Date.now() })); } catch (e) { /* ignore */ }
+          SWD.toast("Sent " + lat.toFixed(6) + ", " + lng.toFixed(6));
+        } else {
+          SWD.toast(r && (r.offline || r.status >= 500) ? "No connection — kept and sent later." : SWD.errorText(r));
+        }
+        showTester();
+      });
+    };
+    var from = function () {
+      var p = lastPing() || lastFix;
+      if (p) return p;
+      var v = q("[data-gps-tester-place]").value.split(",");
+      return { lat: parseFloat(v[0]), lng: parseFloat(v[1]) };
+    };
+    // "Test location: stop": today's stops and the warehouse, from GET routes/today.
+    var loadStops = function () {
+      var sel = q("[data-gps-test-stop]");
+      SWD.call("GET", "routes/today").then(function (r) {
+        while (sel.options.length > 1) sel.remove(1);
+        if (!r.ok || !r.data) { sel.options[0].text = "Couldn't load your stops"; return; }
+        var n = 0;
+        (r.data.routes || []).forEach(function (route) {
+          var wh = route.warehouse;
+          if (wh && wh.latitude != null && wh.longitude != null) { sel.add(new Option(route.name + " — Warehouse (" + wh.name + ")", wh.latitude + "," + wh.longitude)); n++; }
+          (route.stops || []).forEach(function (s) {
+            if (s.latitude == null || s.longitude == null) return;
+            var name = s.kind === "warehouse" ? "Warehouse" : (s.ship_to && s.ship_to.company_name) || (s.customer && s.customer.name) || "Stop";
+            sel.add(new Option("#" + s.position + " " + name, s.latitude + "," + s.longitude));
+            n++;
+          });
+        });
+        sel.options[0].text = n ? "Choose a stop…" : "No stop with a position today";
+      });
+    };
+
+    document.querySelectorAll("[data-gps-tester-open]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        closeDrawerNow();
+        tester.hidden = false;
+        tester.classList.add("open");
+        showTester();
+        loadStops();
+      });
+    });
+    q("[data-gps-test-stop]").addEventListener("change", function (e) {
+      if (!e.target.value) return;
+      var v = e.target.value.split(",");
+      report(parseFloat(v[0]), parseFloat(v[1]));
+    });
+    q("[data-gps-tester-place-go]").addEventListener("click", function () {
+      var v = q("[data-gps-tester-place]").value.split(",");
+      report(parseFloat(v[0]), parseFloat(v[1]));
+    });
+    // Move: the chosen distance (number × m or km) in the chosen direction from the last location.
+    q("[data-gps-tester-move]").addEventListener("click", function () {
+      var meters = parseFloat(q("[data-gps-tester-distance]").value) * parseFloat(q("[data-gps-tester-unit]").value);
+      var p = from(), d = meters / 111320; // metres in degrees of latitude
+      var lat = p.lat, lng = p.lng, dir = q("[data-gps-tester-direction]").value;
+      if (dir === "north") lat += d;
+      if (dir === "south") lat -= d;
+      if (dir === "east") lng += d / Math.cos(lat * Math.PI / 180);
+      if (dir === "west") lng -= d / Math.cos(lat * Math.PI / 180);
+      report(lat, lng);
+    });
+    q("[data-gps-tester-custom-go]").addEventListener("click", function () {
+      report(parseFloat(q("[data-gps-tester-lat]").value), parseFloat(q("[data-gps-tester-lng]").value));
+    });
+    q("[data-gps-tester-real]").addEventListener("click", function () {
+      fakeGps = false;
+      try { localStorage.removeItem("swd-fake-gps"); } catch (e) { /* ignore */ }
+      stopGps();
+      startGps();
+      SWD.toast("Back on real GPS.");
+      showTester();
+    });
+  }
+
   // ---------------------------------------------------------------- logout (shared phones)
   document.querySelectorAll("[data-logout]").forEach(function (a) {
     a.addEventListener("click", function (e) {
@@ -623,7 +732,7 @@
         e.preventDefault();
         return;
       }
-      try { localStorage.removeItem("swd-last-fix"); sessionStorage.clear(); } catch (err) { /* ignore */ }
+      try { ["swd-last-fix", "swd-last-ping", "swd-fake-gps"].forEach(function (k) { localStorage.removeItem(k); }); sessionStorage.clear(); } catch (err) { /* ignore */ }
     });
   });
 

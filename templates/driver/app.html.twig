@@ -81,6 +81,9 @@
                 <button type="button" data-messages-open>Messages <span class="badge-count" data-messages-badge hidden></span></button>
                 <a href="{{ path('app_driver_hours') }}"{{ tab == 'hours' ? ' class="active"' }}>Work Hours</a>
                 <button type="button" data-network-status-open>Connectivity &amp; Report a Problem</button>
+                {% if driver_gps_tester %}
+                <button type="button" data-gps-tester-open>GPS Test</button>
+                {% endif %}
                 <a href="{{ path('app_driver_logout') }}" class="text-danger" data-logout>Log Out</a>
             </nav>
         </aside>
@@ -117,6 +120,78 @@
             <button type="button" class="btn btn-secondary btn-block mt" data-close>Close</button>
         </div>
     </div>
+
+    {% if driver_gps_tester %}
+    {#
+        GPS tester (test servers only, DRIVER_GPS_TESTER=1), as fvstexpress-driver's: sends a chosen location as the
+        driver's position (POST /positions) instead of the phone's GPS, so Dispatch's map, the truck icon, the
+        stationary alert and the tracking page can be tried from a desk. "Test location" lists today's stops and the
+        warehouse (Safeway has no delivery zones); picking one reports its position.
+    #}
+    <div class="confirm-overlay" data-gps-tester-overlay hidden>
+        <div class="confirm-modal gps-tester">
+            <h3>GPS Location Reporting</h3>
+            <div class="net-rows">
+                <div class="net-row"><span>Last Location Reported</span><span class="net-value gps-tester-last" data-gps-tester-last>None yet</span></div>
+                <div class="net-meta" data-gps-tester-ago></div>
+            </div>
+
+            <div class="form-group">
+                <label for="gps-test-stop">Test location: stop</label>
+                <select id="gps-test-stop" class="input" data-gps-test-stop>
+                    <option value="">Choose a stop…</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="gps-tester-place">Place</label>
+                <div class="gps-tester-line">
+                    <select id="gps-tester-place" class="input" data-gps-tester-place>
+                        <option value="49.261111,-123.113889">Vancouver 49.261111, -123.113889</option>
+                        <option value="49.1044,-122.8011">Surrey 49.1044, -122.8011</option>
+                        <option value="49.2488,-122.9805">Burnaby 49.2488, -122.9805</option>
+                    </select>
+                    <button type="button" class="btn btn-primary" data-gps-tester-place-go>Go</button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="gps-tester-distance">Move</label>
+                <div class="gps-tester-line">
+                    <select id="gps-tester-distance" class="input" aria-label="Distance" data-gps-tester-distance>
+                        {% for n in [1, 2, 5, 10, 25, 50, 100, 250, 500] %}
+                        <option value="{{ n }}"{% if n == 100 %} selected{% endif %}>{{ n }}</option>
+                        {% endfor %}
+                    </select>
+                    <select class="input" aria-label="Unit" data-gps-tester-unit>
+                        <option value="1" selected>m</option>
+                        <option value="1000">km</option>
+                    </select>
+                    <select class="input" aria-label="Direction" data-gps-tester-direction>
+                        <option value="north">North</option>
+                        <option value="south">South</option>
+                        <option value="east">East</option>
+                        <option value="west">West</option>
+                    </select>
+                    <button type="button" class="btn btn-primary" data-gps-tester-move>Go</button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Custom</label>
+                <div class="gps-tester-line">
+                    <input type="number" step="any" inputmode="decimal" class="input" placeholder="Lat" aria-label="Latitude" data-gps-tester-lat>
+                    <input type="number" step="any" inputmode="decimal" class="input" placeholder="Long" aria-label="Longitude" data-gps-tester-lng>
+                    <button type="button" class="btn btn-primary" data-gps-tester-custom-go>Go</button>
+                </div>
+            </div>
+
+            <p class="text-faint" data-gps-tester-mode></p>
+            <button type="button" class="btn btn-secondary btn-block" data-gps-tester-real>Use real GPS</button>
+            <button type="button" class="btn btn-secondary btn-block mt" data-close>Close</button>
+        </div>
+    </div>
+    {% endif %}
 
     {# Messages (GET /messages; tap = confirm read) #}
     <div class="messages-overlay" data-messages-overlay hidden>

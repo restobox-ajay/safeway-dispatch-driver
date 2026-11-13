@@ -810,3 +810,9 @@ label.radio-row {
 .hours-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .hours-grid > * { min-width: 0; }
 .hours-last { font-size: 12px; color: var(--muted); }
+
+/* GPS tester (test servers only, DRIVER_GPS_TESTER=1) */
+.gps-tester-line { display: flex; gap: 6px; align-items: center; }
+.gps-tester-line .input { flex: 1 1 0; min-width: 0; }
+.gps-tester-line .btn { flex: 0 0 auto; }
+.gps-tester-last { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color: var(--text, #495057); }

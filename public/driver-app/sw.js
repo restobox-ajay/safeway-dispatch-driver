@@ -4,7 +4,7 @@
    Taps made offline are queued by the page itself (IndexedDB, app.js), not here. */
 "use strict";
 
-var VERSION = "swd-driver-2";
+var VERSION = "swd-driver-3";
 var STATIC = [
   "/driver-app/css/safeway.css",
   "/driver-app/js/app.js",

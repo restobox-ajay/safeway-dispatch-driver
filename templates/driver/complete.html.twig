@@ -1,0 +1,101 @@
+{% extends 'driver/app.html.twig' %}
+{#
+    Figma "Mark Delivery Complete": "Mark Complete: <shop>", Status Delivery (Complete / Not Delivered / Other Issue),
+    Add Note (Optional), Take Photo ("Click to upload"), Update. The spec: mark complete, take a photo through the
+    browser to prove delivery, or mark undelivered / other issue with a reason; then back to the main page.
+
+    The Safeway Driver API wants one outcome per task (POST /stops/{id}/complete, section 4), so each task gets its
+    own Status list with that task type's outcomes (the first is "complete"); a reason shows for every other one.
+    Photos: 1 to 10, required unless every task failed (a reload at the warehouse needs none).
+#}
+
+{% block title %}Mark Complete — Safeway Driver{% endblock %}
+{% block crumbs %} / <span>Mark Complete</span>{% endblock %}
+{% block page_title %}Mark Complete: {{ stop.company }}{% endblock %}
+
+{% block content %}
+    <form class="card" data-complete-form data-stop-id="{{ stop.id }}" data-reload="{{ stop.warehouse ? '1' : '0' }}" novalidate>
+        {% for t in tasks %}
+            <section class="task-block" data-task="{{ t.task_ref }}" data-type="{{ t.type }}">
+                <div class="task-block-title">{{ tasks|length > 1 ? t.label ~ ' — ' }}Status Delivery:</div>
+                {% if t.items is defined and t.items %}
+                    <p class="text-faint">{% for i in t.items %}{{ i.name ?? i.sku ?? i.line_ref }} X {{ i.quantity }}{{ not loop.last ? ', ' }}{% endfor %}</p>
+                {% endif %}
+                <div class="radio-list" role="radiogroup">
+                    {% for o in t.outcomes %}
+                        <label class="radio-row">
+                            <input type="radio" name="outcome-{{ t.task_ref }}" value="{{ o }}"{{ loop.first ? ' checked' }} data-outcome>
+                            {{ loop.first and t.type in ['deliver', 'pickup_return'] ? 'Complete' : outcome_labels[o] ?? o }}
+                        </label>
+                    {% endfor %}
+                </div>
+
+                <div class="form-group mt" data-reason-box hidden>
+                    <label>Reason</label>
+                    <select class="input" data-reason>
+                        <option value="">Choose a reason…</option>
+                        {% for code, label in reasons %}<option value="{{ code }}">{{ label }}</option>{% endfor %}
+                    </select>
+                </div>
+
+                {% if t.items is defined and t.items %}
+                <div class="qty-grid mt" data-qty-box hidden>
+                    {% for i in t.items %}
+                        <label class="qty-row">
+                            <span>{{ i.name ?? i.sku ?? i.line_ref }} (of {{ i.quantity }})</span>
+                            <input type="number" class="input" inputmode="decimal" min="0" max="{{ i.quantity }}" step="any" data-line="{{ i.line_ref }}" data-of="{{ i.quantity }}">
+                        </label>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {% if t.type == 'collect_payment' %}
+                <div class="mt" data-pay-box>
+                    <div class="form-group">
+                        <label>Amount collected</label>
+                        <input type="text" class="input" inputmode="decimal" value="{{ t.amount ?? '' }}" data-amount>
+                    </div>
+                    <div class="form-group">
+                        <label>Method</label>
+                        <select class="input" data-method>
+                            {% for m in t.methods ?? [] %}<option value="{{ m }}">{{ m|replace({'_': ' '})|capitalize }}</option>{% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group" data-cheque-box hidden>
+                        <label>Cheque number</label>
+                        <input type="text" class="input" maxlength="32" data-cheque>
+                    </div>
+                </div>
+                {% endif %}
+
+                <div class="form-group mt">
+                    <label>Add Note (Optional)</label>
+                    <textarea class="input" rows="3" maxlength="1000" data-note></textarea>
+                </div>
+            </section>
+        {% endfor %}
+
+        {% if not stop.warehouse %}
+            <div class="form-group">
+                <label for="recipient">Received by (optional)</label>
+                <input type="text" id="recipient" class="input" maxlength="120" data-recipient>
+            </div>
+
+            <div class="form-group">
+                <label>Take Photo</label>
+                <label class="photo-drop" for="photo-input">
+                    <span class="photo-drop-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></span>
+                    <span class="photo-drop-link">Click to upload</span>
+                    <span class="photo-drop-hint">PNG, JPG · 1 to 10 photos</span>
+                </label>
+                <input type="file" id="photo-input" accept="image/*" capture="environment" hidden data-photo-input>
+                <div class="photo-strip" data-photo-strip></div>
+            </div>
+        {% endif %}
+
+        <div class="alert alert-danger" data-form-error hidden role="alert"></div>
+        <button type="submit" class="btn btn-primary btn-block">Update</button>
+    </form>
+{% endblock %}
+
+{% block page_scripts %}<script src="/driver-app/js/stop.js" defer></script>{% endblock %}

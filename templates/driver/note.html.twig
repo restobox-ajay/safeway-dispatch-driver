@@ -1,0 +1,30 @@
+{% extends 'driver/app.html.twig' %}
+{#
+    Figma "Add Notes": "Add Note: <shop>", a Note box and Update. The spec's NOTE button: "received $100 cash",
+    "customer rejected order", "customer only takes 2 tires instead of 4". POST /stops/{id}/notes; the reason is
+    optional (Safeway Driver API section 8), the text is required without one.
+#}
+
+{% block title %}Add Note — Safeway Driver{% endblock %}
+{% block crumbs %} / <a href="{{ path('app_driver_tasks') }}">List Destinations</a> / <span>{{ stop.company }}</span>{% endblock %}
+{% block page_title %}Add Note: {{ stop.company }}{% endblock %}
+
+{% block content %}
+    <form class="card" data-note-form data-stop-id="{{ stop.id }}" data-back="{{ path('app_driver_stop', {id: stop.id}) }}" novalidate>
+        <div class="form-group">
+            <label for="note-text">Note</label>
+            <textarea id="note-text" class="input" rows="5" maxlength="1000" data-note-text></textarea>
+        </div>
+        <div class="form-group">
+            <label for="note-reason">What happened (optional)</label>
+            <select id="note-reason" class="input" data-note-reason>
+                <option value="">Just a note</option>
+                {% for code, label in reasons %}<option value="{{ code }}">{{ label }}</option>{% endfor %}
+            </select>
+        </div>
+        <div class="alert alert-danger" data-form-error hidden role="alert"></div>
+        <button type="submit" class="btn btn-primary btn-block">Update</button>
+    </form>
+{% endblock %}
+
+{% block page_scripts %}<script src="/driver-app/js/stop.js" defer></script>{% endblock %}

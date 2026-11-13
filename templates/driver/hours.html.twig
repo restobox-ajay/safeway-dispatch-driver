@@ -1,0 +1,31 @@
+{% extends 'driver/app.html.twig' %}
+{#
+    Work Hours: start work, breaks, end work (POST /hours, Safeway Driver API section 8). The order is start, then
+    break_start / break_end pairs, then end; the phone remembers the last one sent (stop.js) to offer the next.
+#}
+
+{% block title %}Work Hours — Safeway Driver{% endblock %}
+{% block crumbs %} / <span>Work Hours</span>{% endblock %}
+{% block page_title %}Work Hours{% endblock %}
+
+{% block content %}
+    <div class="card" data-hours>
+        <div class="field">
+            <div class="field-label">Driver:</div>
+            <div class="field-value">{{ me.driver.name ?? app.user.name }}</div>
+        </div>
+        <div class="field">
+            <div class="field-label">Today:</div>
+            <div class="field-value">{{ me.today ?? '' }}{% for r in me.routes ?? [] %}{{ loop.first ? ' · ' : ', ' }}{{ r.name ?? r.ref }}{% endfor %}</div>
+        </div>
+        <div class="hours-grid">
+            <button type="button" class="btn btn-primary" data-hours-event="start">Start Work</button>
+            <button type="button" class="btn btn-warning" data-hours-event="break_start">Start Break</button>
+            <button type="button" class="btn btn-success" data-hours-event="break_end">End Break</button>
+            <button type="button" class="btn btn-danger" data-hours-event="end">End Work</button>
+        </div>
+        <p class="hours-last mt" data-hours-last></p>
+    </div>
+{% endblock %}
+
+{% block page_scripts %}<script src="/driver-app/js/stop.js" defer></script>{% endblock %}

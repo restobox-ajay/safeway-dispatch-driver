@@ -1,0 +1,35 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}API Docs{% endblock %}
+
+{% block stylesheets %}
+    {{ parent() }}
+    <link rel="stylesheet" href="/vendor/swagger-ui/swagger-ui.css">
+{% endblock %}
+
+{% block body %}
+<h1>API Docs</h1>
+
+<p>
+    The two token-authenticated REST surfaces: the <strong>Admin API</strong> (<code>/admin-api</code>) and the
+    <strong>User API</strong> (<code>/api</code>). Every operation below is checked against the running code by the
+    test suite, so this page cannot silently drift from the real endpoints.
+</p>
+<p>
+    Get an admin token from the server shell: <code>php bin/console app:admin:create-api-token --email=you@example.com</code>,
+    then press <em>Authorize</em> and paste it. See and revoke your tokens under
+    <a href="{{ path('app_admin_api_tokens') }}">API Tokens</a>.
+</p>
+<div class="warning">
+    <em>Try it out</em> sends <strong>real requests to this instance</strong> — create, update, delete and deactivate
+    calls really change data and are audit-logged.
+</div>
+
+<div id="swagger-ui" data-spec-url="{{ specUrl }}"></div>
+{% endblock %}
+
+{% block javascripts %}
+    {{ parent() }}
+    <script src="/vendor/swagger-ui/swagger-ui-bundle.js"></script>
+    <script src="/vendor/swagger-ui/swagger-initializer.js"></script>
+{% endblock %}

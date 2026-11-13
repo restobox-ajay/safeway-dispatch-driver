@@ -1,0 +1,29 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Invite User — Admin{% endblock %}
+
+{% block body %}
+<h1>Invite User</h1>
+
+{% for message in app.flashes('success') %}
+    <div class="flash-success">{{ message }}</div>
+{% endfor %}
+
+{% if errors.csrf is defined %}
+    <div class="error"><p>{{ errors.csrf }}</p></div>
+{% endif %}
+
+<form method="post" action="{{ path('app_admin_users_invite') }}">
+    <input type="hidden" name="_token" value="{{ csrf_token('admin_invite') }}">
+    <div>
+        <label for="email">Email Address</label>
+        <input type="email" id="email" name="email" required>
+        {% if errors.email is defined %}
+            <span class="field-error">{{ errors.email }}</span>
+        {% endif %}
+    </div>
+    <button type="submit">Send Invitation</button>
+</form>
+
+<p><a href="{{ path('app_admin_users_invitations') }}">View all invitations</a></p>
+{% endblock %}

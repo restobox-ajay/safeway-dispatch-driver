@@ -1,0 +1,65 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Invitations — Admin{% endblock %}
+
+{% block body %}
+<h1>Invitations</h1>
+
+{% for message in app.flashes('success') %}
+    <div class="flash-success">{{ message }}</div>
+{% endfor %}
+
+{% for message in app.flashes('error') %}
+    <div class="flash-error">{{ message }}</div>
+{% endfor %}
+
+<a href="{{ path('app_admin_users_invite') }}">New Invitation</a>
+
+<table>
+    <thead>
+        <tr>
+            <th>Email</th>
+            <th>Expires At</th>
+            <th>Status</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for invitation in invitations %}
+        <tr>
+            <td class="invitation-email">{{ invitation.email }}</td>
+            <td class="invitation-expires">{{ invitation.expiresAt|date('Y-m-d H:i') }}</td>
+            <td class="invitation-status">
+                {% if invitation.isUsed %}Used{% elseif invitation.isExpired %}Expired{% else %}Pending{% endif %}
+            </td>
+            <td>
+                <form method="post" action="{{ path('app_admin_users_invitations_resend', {id: invitation.id}) }}" style="display:inline">
+                    <input type="hidden" name="_token" value="{{ csrf_token('admin_invite_resend_' ~ invitation.id) }}">
+                    <button type="submit" class="resend-btn">Resend</button>
+                </form>
+            </td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="4">No invitations found.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+{% if totalPages > 1 %}
+<nav aria-label="Pagination">
+    {% if currentPage > 1 %}
+    <a href="{{ path('app_admin_users_invitations', {page: currentPage - 1}) }}">Previous</a>
+    {% endif %}
+
+    {% for p in 1..totalPages %}
+    <a href="{{ path('app_admin_users_invitations', {page: p}) }}"{% if p == currentPage %} aria-current="page"{% endif %}>{{ p }}</a>
+    {% endfor %}
+
+    {% if currentPage < totalPages %}
+    <a href="{{ path('app_admin_users_invitations', {page: currentPage + 1}) }}">Next</a>
+    {% endif %}
+</nav>
+{% endif %}
+{% endblock %}

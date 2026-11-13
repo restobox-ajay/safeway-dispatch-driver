@@ -1,0 +1,61 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Personal Access Tokens{% endblock %}
+
+{% block body %}
+<h1>Personal Access Tokens</h1>
+
+{% for message in app.flashes('success') %}
+    <div class="flash-success">{{ message }}</div>
+{% endfor %}
+{% for message in app.flashes('error') %}
+    <div class="flash-error error">{{ message }}</div>
+{% endfor %}
+
+{% if error is defined and error %}
+    <div class="error">{{ error }}</div>
+{% endif %}
+
+<h2>Create New Token</h2>
+<form method="post" action="{{ path('app_account_tokens_new') }}">
+    <input type="hidden" name="_token" value="{{ csrf_token('token_create') }}">
+    <div class="form-field">
+        <label for="name">Token Name</label>
+        <input type="text" id="name" name="name" required>
+    </div>
+    <button type="submit">Create Token</button>
+</form>
+
+<h2>Active Tokens</h2>
+{% if tokens is empty %}
+    <p>No active tokens.</p>
+{% else %}
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Expires</th>
+                <th>Last Used</th>
+                <th>Created</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for token in tokens %}
+            <tr>
+                <td class="token-name">{{ token.name }}</td>
+                <td class="token-expiry">{{ token.expiresAt ? token.expiresAt|date('Y-m-d H:i:s') : 'Never' }}</td>
+                <td class="token-last-used">{{ token.lastUsedAt ? token.lastUsedAt|date('Y-m-d H:i:s') : 'Never' }}</td>
+                <td>{{ token.createdAt|date('Y-m-d H:i:s') }}</td>
+                <td>
+                    <form method="post" action="{{ path('app_account_tokens_revoke', {id: token.id}) }}" style="display:inline">
+                        <input type="hidden" name="_token" value="{{ csrf_token('token_revoke_' ~ token.id) }}">
+                        <button type="submit" class="token-revoke-btn">Revoke</button>
+                    </form>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+{% endif %}
+{% endblock %}

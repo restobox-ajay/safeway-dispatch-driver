@@ -1,0 +1,16 @@
+/* ============================================================================
+   App-level additions to the design system.
+
+   Kept separate from app.css so that file stays a byte-faithful export of the
+   design system and can be replaced wholesale on the next re-export.
+   ============================================================================ */
+
+/* The theme makes `.main > h1 ~ form > div` a grid so a label sits above its input.
+   A checkbox is the exception — it reads as one row with its text — so the label
+   wraps the input and lays itself out inline, matching the design system's own
+   checkbox markup. */
+.checkbox-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}

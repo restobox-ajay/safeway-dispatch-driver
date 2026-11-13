@@ -1,0 +1,57 @@
+doctrine:
+    dbal:
+        url: '%env(resolve:DATABASE_URL)%'
+        profiling_collect_backtrace: '%kernel.debug%'
+        use_savepoints: true
+        # Tables managed outside the ORM (no entity): the DBAL rate-limit stores
+        # (login_attempts, endpoint_rate_limits), the PdoSessionHandler `sessions` table, and
+        # the Messenger transport `messenger_messages`. Excluding them from ORM schema management
+        # keeps doctrine:schema:validate green and — critically — stops a future
+        # doctrine:migrations:diff from emitting DROP TABLE for the rate-limiting/session/queue
+        # stores (review C29 / FEATURE-121). Negative-lookahead: manage everything EXCEPT these.
+        #
+        # `doctrine_migration_versions` is deliberately NOT listed. This filter is global to the
+        # connection, so listing it also hid the table from the migrations bundle's own
+        # TableMetadataStorage::tablesExist() check — making doctrine:migrations:migrate believe
+        # its metadata table was missing and re-create it on an already-migrated DB
+        # ("table doctrine_migration_versions already exists"), i.e. migrate was not idempotent
+        # (review C40 / FEATURE-129). The console excludes the migration table from
+        # schema:validate on its own; the raw SchemaValidator in SchemaSyncTest excludes it
+        # explicitly instead of via this filter.
+        schema_filter: '~^(?!(?:login_attempts|endpoint_rate_limits|sessions|messenger_messages|db_console_throttle)$)~'
+    orm:
+        auto_generate_proxy_classes: true
+        enable_lazy_ghost_objects: true
+        report_fields_where_declared: true
+        validate_xml_mapping: true
+        naming_strategy: doctrine.orm.naming_strategy.underscore_number_aware
+        auto_mapping: true
+        mappings:
+            App:
+                type: attribute
+                is_bundle: false
+                dir: '%kernel.project_dir%/src/Entity'
+                prefix: 'App\Entity'
+                alias: App
+        controller_resolver:
+            auto_mapping: false
+
+when@prod:
+    doctrine:
+        orm:
+            auto_generate_proxy_classes: false
+            proxy_dir: '%kernel.build_dir%/doctrine/orm/Proxies'
+            query_cache_driver:
+                type: pool
+                pool: doctrine.system_cache_pool
+            result_cache_driver:
+                type: pool
+                pool: doctrine.result_cache_pool
+
+    framework:
+        cache:
+            pools:
+                doctrine.result_cache_pool:
+                    adapter: cache.app
+                doctrine.system_cache_pool:
+                    adapter: cache.system

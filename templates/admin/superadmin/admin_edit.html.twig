@@ -1,0 +1,55 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Edit Admin{% endblock %}
+
+{% block body %}
+<h1>Edit Admin</h1>
+
+{% if errors is not empty %}
+    <div class="error">
+        {% for error in errors %}<p>{{ error }}</p>{% endfor %}
+    </div>
+{% endif %}
+
+{% set isSuper = 'ROLE_SUPER_ADMIN' in admin.roles %}
+{% set isTech = 'ROLE_TECH_SUPPORT' in admin.roles %}
+
+<form method="post" action="{{ path('app_admin_superadmin_admins_edit', {id: admin.id}) }}">
+    <input type="hidden" name="_token" value="{{ csrf_token('admin_admin_edit_' ~ admin.id) }}">
+
+    <div>
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" value="{{ admin.email }}" autocomplete="off" required>
+    </div>
+
+    <div>
+        <label for="name">Name</label>
+        <input type="text" id="name" name="name" value="{{ admin.name }}" autocomplete="off" required>
+    </div>
+
+    <div>
+        <label for="role">Role</label>
+        <select id="role" name="role">
+            <option value="ROLE_ADMIN"{% if not isSuper and not isTech %} selected{% endif %}>Admin</option>
+            <option value="ROLE_SUPER_ADMIN"{% if isSuper %} selected{% endif %}>Superadmin</option>
+            {# Maintainer tier — offered only to tech-support viewers (ADR-050); a hidden
+               (tech-support) target is only ever editable by a tech-support viewer anyway. #}
+            {% if is_granted('ROLE_TECH_SUPPORT') %}
+            <option value="ROLE_TECH_SUPPORT"{% if isTech %} selected{% endif %}>Tech Support</option>
+            {% endif %}
+        </select>
+    </div>
+
+    <div>
+        <label for="status">Status</label>
+        <select id="status" name="status">
+            <option value="active"{% if admin.status == 'active' %} selected{% endif %}>Active</option>
+            <option value="inactive"{% if admin.status == 'inactive' %} selected{% endif %}>Inactive</option>
+        </select>
+    </div>
+
+    <button type="submit">Save Changes</button>
+</form>
+
+<p><a href="{{ path('app_admin_superadmin_admins') }}">Back to admin list</a></p>
+{% endblock %}

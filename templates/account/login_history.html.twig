@@ -1,0 +1,30 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Login History{% endblock %}
+
+{% block body %}
+<h1>Login History</h1>
+
+<table>
+    <thead>
+        <tr>
+            <th>IP Address</th>
+            <th>User Agent</th>
+            <th>Date &amp; Time</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for entry in history %}
+        <tr>
+            <td class="entry-ip">{{ entry.ip }}</td>
+            <td class="entry-ua">{{ entry.userAgent }}</td>
+            <td class="entry-time">{{ entry.createdAt|date('Y-m-d H:i:s') }}</td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="3">No login history found.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,11 @@
+__SITE_HOST__ {
+    root * __REPO_ROOT__/public
+    encode gzip zstd
+    php_fastcgi unix/__PHP_FPM_SOCKET__
+    file_server
+
+    log {
+        output file __REPO_ROOT__/.agent/caddy-access.log
+        format console
+    }
+}

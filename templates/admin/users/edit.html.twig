@@ -1,0 +1,65 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Edit User — Admin{% endblock %}
+
+{% block body %}
+<h1>Edit User</h1>
+
+{% for message in app.flashes('success') %}
+    <div class="flash-success">{{ message }}</div>
+{% endfor %}
+
+{% if errors is not empty %}
+    <div class="error">
+        {% for error in errors %}
+            <p>{{ error }}</p>
+        {% endfor %}
+    </div>
+{% endif %}
+
+<form method="post" action="{{ path('app_admin_users_edit', {id: user.id}) }}">
+    <input type="hidden" name="_token" value="{{ csrf_token('admin_user_edit') }}">
+
+    <div>
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" value="{{ user.email }}" autocomplete="off" required>
+        {% if errors.email is defined %}
+            <span class="field-error">{{ errors.email }}</span>
+        {% endif %}
+    </div>
+
+    <div>
+        <label for="name">Name</label>
+        <input type="text" id="name" name="name" value="{{ user.name }}" autocomplete="off" required>
+        {% if errors.name is defined %}
+            <span class="field-error">{{ errors.name }}</span>
+        {% endif %}
+    </div>
+
+    <div>
+        <label for="role">Role</label>
+        <select id="role" name="role">
+            <option value="ROLE_USER" selected>User</option>
+        </select>
+    </div>
+
+    <div>
+        <label for="status">Status</label>
+        <select id="status" name="status">
+            <option value="active"{% if user.status == 'active' %} selected{% endif %}>Active</option>
+            <option value="inactive"{% if user.status == 'inactive' %} selected{% endif %}>Inactive</option>
+        </select>
+    </div>
+
+    <div>
+        <label for="allowed_ips">Allowed IPs</label>
+        <input type="text" id="allowed_ips" name="allowed_ips" value="{{ allowed_ips }}" autocomplete="off"
+               placeholder="comma-separated IPs/CIDRs, e.g. 203.0.113.4, 198.51.100.0/24">
+        <small>Per-user login IP whitelist (auth-ip-whitelist-bundle). Blank = no per-user restriction; the global whitelist still applies.</small>
+    </div>
+
+    <button type="submit">Save Changes</button>
+</form>
+
+<p><a href="{{ path('app_admin_users') }}">Back to user list</a></p>
+{% endblock %}

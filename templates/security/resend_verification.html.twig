@@ -1,0 +1,26 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Resend Verification Email{% endblock %}
+
+{% block body %}
+<h1>Resend Verification Email</h1>
+
+{% for message in app.flashes('success') %}
+    <div class="success">{{ message }}</div>
+{% endfor %}
+
+{% for message in app.flashes('error') %}
+    <div class="error">{{ message }}</div>
+{% endfor %}
+
+<form method="post" action="{{ path('app_resend_verification_post') }}">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token('resend_verification') }}">
+    <div>
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" required>
+    </div>
+    <button type="submit">Resend verification email</button>
+</form>
+
+<p><a href="{{ path('app_login') }}">Back to login</a></p>
+{% endblock %}

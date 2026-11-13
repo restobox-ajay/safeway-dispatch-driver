@@ -1,0 +1,96 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Users — Admin{% endblock %}
+
+{% block body %}
+<h1>Users</h1>
+<p>Total: {{ total }}</p>
+
+{% for message in app.flashes('success') %}
+    <div class="flash-success">{{ message }}</div>
+{% endfor %}
+
+<a href="{{ path('app_admin_users_new') }}">New User</a>
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Status</th>
+            <th>Role</th>
+            <th>Active Tokens</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for user in users %}
+        {% set activeTokenCount = tokenCounts[user.id] ?? 0 %}
+        <tr>
+            <td>{{ user.name }}</td>
+            <td>{{ user.email }}</td>
+            <td>{{ user.status }}{% if user.id in locked_user_ids %} <span class="locked-indicator">Locked</span>{% endif %}</td>
+            <td>{{ user.roles | join(', ') }}</td>
+            <td><span class="active-token-count">{{ activeTokenCount }}</span></td>
+            <td>
+                <a href="{{ path('app_admin_users_edit', {id: user.id}) }}">Edit</a>
+                {# Only offered when auth-impersonate-bundle is registered (FEATURE-142 / ADR-041); the
+                   Twig global is undefined ⇒ hidden when the bundle is removed. #}
+                {% if impersonation_available is defined and impersonation_available and impersonation_enabled %}
+                <form method="post" action="{{ path('app_admin_users_impersonate_start', {id: user.id}) }}" style="display:inline">
+                    <input type="hidden" name="_token" value="{{ csrf_token('admin_user_impersonate_' ~ user.id) }}">
+                    <button type="submit" class="impersonate-btn">Impersonate</button>
+                </form>
+                {% endif %}
+                <form method="post" action="{{ path('app_admin_users_password_reset', {id: user.id}) }}" style="display:inline">
+                    <input type="hidden" name="_token" value="{{ csrf_token('admin_user_password_reset_' ~ user.id) }}">
+                    <button type="submit" class="password-reset-btn">Reset Password</button>
+                </form>
+                {% if activeTokenCount > 0 %}
+                <form method="post" action="{{ path('app_admin_users_revoke_tokens', {id: user.id}) }}" style="display:inline">
+                    <input type="hidden" name="_token" value="{{ csrf_token('admin_user_revoke_tokens_' ~ user.id) }}">
+                    <button type="submit" class="revoke-tokens-btn">Revoke All Tokens</button>
+                </form>
+                {% endif %}
+                {% if user.id in locked_user_ids %}
+                <form method="post" action="{{ path('app_admin_users_unlock', {id: user.id}) }}" style="display:inline">
+                    <input type="hidden" name="_token" value="{{ csrf_token('admin_user_unlock_' ~ user.id) }}">
+                    <button type="submit" class="unlock-btn">Unlock</button>
+                </form>
+                {% endif %}
+                {% if user.id in two_factor_enabled_ids %}
+                <form method="post" action="{{ path('app_admin_users_reset_2fa', {id: user.id}) }}" style="display:inline">
+                    <input type="hidden" name="_token" value="{{ csrf_token('admin_user_reset_2fa_' ~ user.id) }}">
+                    <button type="submit" class="reset-2fa-btn">Reset 2FA</button>
+                </form>
+                {% endif %}
+                <form method="post" action="{{ path('app_admin_users_delete', {id: user.id}) }}" style="display:inline">
+                    <input type="hidden" name="_token" value="{{ csrf_token('admin_user_delete_' ~ user.id) }}">
+                    <button type="submit" class="delete-btn">Delete</button>
+                </form>
+            </td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="6">No users found.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+{% if totalPages > 1 %}
+<nav aria-label="Pagination">
+    {% if currentPage > 1 %}
+    <a href="{{ path('app_admin_users', {page: currentPage - 1}) }}">Previous</a>
+    {% endif %}
+
+    {% for p in 1..totalPages %}
+    <a href="{{ path('app_admin_users', {page: p}) }}"{% if p == currentPage %} aria-current="page"{% endif %}>{{ p }}</a>
+    {% endfor %}
+
+    {% if currentPage < totalPages %}
+    <a href="{{ path('app_admin_users', {page: currentPage + 1}) }}">Next</a>
+    {% endif %}
+</nav>
+{% endif %}
+{% endblock %}

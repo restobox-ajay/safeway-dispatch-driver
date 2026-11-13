@@ -1,0 +1,51 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Register{% endblock %}
+
+{% block body %}
+<h1>Create an account</h1>
+
+{% for message in app.flashes('success') %}
+    <div class="flash-success">{{ message }}</div>
+{% endfor %}
+
+{% if errors is not empty %}
+    <div class="error">
+        {% for error in errors %}
+            <p>{{ error }}</p>
+        {% endfor %}
+    </div>
+{% endif %}
+
+<form method="post" action="{{ path('app_register') }}">
+    <input type="hidden" name="_token" value="{{ csrf_token('register') }}">
+    {% if inviteToken is defined and inviteToken %}
+    <input type="hidden" name="_invite_token" value="{{ inviteToken }}">
+    {% endif %}
+    <div>
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" autocomplete="email"
+               value="{{ invitationEmail is defined ? invitationEmail : '' }}" required>
+        {% if errors.email is defined %}
+            <span class="field-error">{{ errors.email }}</span>
+        {% endif %}
+    </div>
+    <div>
+        <label for="name">Name</label>
+        <input type="text" id="name" name="name" autocomplete="name" required>
+        {% if errors.name is defined %}
+            <span class="field-error">{{ errors.name }}</span>
+        {% endif %}
+    </div>
+    <div>
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" autocomplete="new-password" required>
+        {% if errors.password is defined %}
+            <span class="field-error">{{ errors.password }}</span>
+        {% endif %}
+    </div>
+    <button type="submit">Register</button>
+</form>
+
+<p>Already have an account? <a href="{{ path('app_login') }}">Log in</a></p>
+{% endblock %}

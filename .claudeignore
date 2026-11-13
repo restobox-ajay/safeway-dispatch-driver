@@ -1,0 +1,27 @@
+# Dependencies
+vendor/
+node_modules/
+
+# Symfony cache and logs
+var/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Build output
+public/bundles/
+public/build/
+
+# Logs
+*.log
+
+# Test coverage
+coverage/
+.phpunit.cache/
+
+# Agent logs
+.agent/verify.log
+.agent/review.log
+.agent/caddy-access.log

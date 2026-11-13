@@ -1,0 +1,1474 @@
+/* ============================================================================
+   Compliance Log design system — the application theme.
+
+   Extracted verbatim from the single-file design-system export (its
+   <style id="design-system"> block). Do not hand-edit: re-export and replace.
+
+   The sheet styles BARE elements (<h1>, <table>, <form>, <button>) on purpose,
+   and scopes the boilerplate rules to `.main > h1 ~ …`, so every existing
+   template inherits the theme with no markup changes. The shell contract it
+   expects — .layout[.layout--with-sidebar] > .sidebar + .main — is already what
+   templates/base.html.twig emits.
+
+   Not included from the export: the <style id="styleguide"> block (styles the
+   reference page only), the icon sprite, and the demo JS (sortable headers,
+   filter row, combobox, modal) — no template uses those markup contracts yet.
+   ============================================================================ */
+
+/* ============================================================================
+   THE THEME. Copy this block.
+
+   Density rules, in the order they matter: content fills the width it is
+   given; vertical space is spent on rows, not on chrome; corners are square;
+   type is small but never below 11px.
+
+   Element selectors carry most of the weight on purpose. Bare `<h1>`,
+   `<table>` and `<button>` markup is styled here, so unclassed pages inherit
+   the look instead of each one needing to be rewritten.
+   ============================================================================ */
+
+:root {
+    /* One accent, used sparingly: active nav, primary button, sort direction.
+       Row actions carry meaning in neutral / blue / red instead. */
+    --brand: #b4551d;
+    --brand-dark: #8a3814;
+    --brand-soft: #fdf2e9;
+
+    --nav: #1b2433;
+    --nav-deep: #161d29;
+    --nav-text: #aeb8c7;
+    --nav-label: #6f7d92;
+
+    --bg: #eef0f3;
+    --surface: #ffffff;
+    --surface-soft: #f7f8fa;
+    --surface-head: #f3f4f7;
+    --border: #dcdfe5;
+    --border-strong: #c6cad3;
+
+    --text: #1f2430;
+    --muted: #6b7280;
+    --muted-strong: #4b5563;
+
+    --success: #15803d;
+    --success-bg: #e9f6ed;
+    --success-border: #b6dfc4;
+    --warning: #b45309;
+    --warning-bg: #fdf3e3;
+    --warning-border: #ecd0a4;
+    --danger: #b42318;
+    --danger-bg: #fdeceb;
+    --danger-border: #f0bdb8;
+    --info: #1d4ed8;
+    --info-bg: #eaf0fe;
+    --info-border: #bdcdf6;
+
+    --sidebar-width: 208px;
+    --gutter: 14px;
+
+    /* The Phosphor sheet sizes every glyph with `font-size: var(--icon-font-size)`
+       and ships no definition for it, leaving each icon at whatever its parent
+       happened to inherit. Defining it once means an icon is the size the rule
+       beside it asks for, not the size of the text it sits in. */
+    --icon-font-size: 13px;
+
+    /* "Square corners. Zero or 2px." Named so a stray rounded corner is one edit. */
+    --radius: 2px;
+    --radius-pill: 2px;
+    --radius-sm: 2px;
+    --radius-md: 2px;
+    --radius-lg: 2px;
+    --radius-xl: 2px;
+
+    --shadow-sm: none;
+    --shadow-lg: 0 8px 28px rgba(15, 23, 42, .18);
+    --shadow-focus: 0 0 0 2px rgba(37, 99, 235, .35);
+    --content-max: none;
+    --content-gutter: 14px;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    min-height: 100%;
+    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Below this the sidebar plus a dense table stops fitting; the page scrolls
+   sideways rather than folding columns on top of each other. */
+body { min-width: 1040px; }
+
+a { color: inherit; text-decoration: none; }
+a:hover { text-decoration: none; }
+
+button, input, select, textarea { font: inherit; }
+
+:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 1px;
+}
+
+/* ---------------------------------------------------------------- shell */
+
+.layout { min-height: 100vh; }
+
+.layout--with-sidebar {
+    display: flex;
+    align-items: stretch;
+}
+
+.sidebar {
+    width: var(--sidebar-width);
+    flex: 0 0 var(--sidebar-width);
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+    height: 100vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0 0 12px;
+    border-radius: 0;
+    background: var(--nav);
+    color: var(--nav-text);
+    box-shadow: none;
+}
+
+.sidebar::-webkit-scrollbar { width: 8px; }
+.sidebar::-webkit-scrollbar-thumb { background: #35415a; }
+
+.sidebar .brand,
+.sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 42px;
+    padding: 0 14px;
+    margin: 0;
+    border-bottom: 1px solid #2a3446;
+    color: #fff;
+    font-size: 13.5px;
+    font-weight: 600;
+    letter-spacing: -.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sidebar .brand i { color: var(--brand); font-size: 15px; }
+
+.sidebar nav { padding: 4px 0 0; }
+
+.sidebar h2,
+.sidebar-heading,
+.nav-section {
+    margin: 12px 0 3px;
+    padding: 0 14px;
+    color: var(--nav-label);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .11em;
+}
+
+.sidebar nav > a,
+.nav-link {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 14px;
+    border: 0;
+    border-left: 2px solid transparent;
+    border-radius: 0;
+    color: var(--nav-text);
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.5;
+}
+
+.sidebar nav > a i,
+.nav-link i {
+    flex: 0 0 15px;
+    width: 15px;
+    font-size: 14px;
+    text-align: center;
+    opacity: .75;
+}
+
+.sidebar nav > a:hover,
+.nav-link:hover { background: #26314400; background-color: #232e40; color: #fff; }
+
+.sidebar nav > a.active,
+.nav-link.is-active {
+    background: var(--nav-deep);
+    border-left-color: var(--brand);
+    color: #fff;
+    font-weight: 500;
+}
+
+.sidebar nav > a.active i,
+.nav-link.is-active i { color: #e2914f; opacity: 1; }
+
+.sidebar .divider {
+    height: 1px;
+    margin: 10px 14px;
+    background: #2a3446;
+}
+
+.workspace {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 100vh;
+}
+
+.topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    flex: 0 0 auto;
+    height: 34px;
+    width: auto;
+    max-width: none;
+    margin: 0;
+    padding: 0 var(--gutter);
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    background: var(--surface);
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    font-size: 12px;
+    position: static;
+}
+
+.topbar-left { color: var(--muted); }
+
+.topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+}
+
+.topbar-identity {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted-strong);
+    font-weight: 500;
+}
+
+.topbar-identity i { color: var(--muted); font-size: 13px; }
+
+.topbar-role {
+    padding: 1px 5px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-soft);
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+}
+
+.topbar-link { color: var(--muted-strong); }
+.topbar-link:hover { color: var(--brand-dark); text-decoration: underline; }
+
+.topbar-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 20px;
+    padding: 0 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-soft);
+    color: var(--muted-strong);
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.main {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: var(--gutter);
+}
+
+.appfoot {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px var(--gutter);
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 11px;
+}
+
+/* ------------------------------------------------------------ page head */
+
+.page-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 14px;
+    margin: 0 0 8px;
+    padding: 0;
+}
+
+.page-header > div:first-child {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    min-width: 0;
+    flex-wrap: wrap;
+}
+
+.page-title,
+.main h1 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1.3;
+    letter-spacing: -.01em;
+}
+
+.page-subtitle {
+    margin: 0;
+    max-width: 780px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.page-subtitle:empty { display: none; }
+
+.page-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.main h2 { margin: 14px 0 6px; font-size: 14px; font-weight: 700; }
+.main h3 { margin: 12px 0 6px; font-size: 13px; font-weight: 700; }
+.main p { margin: 0 0 8px; }
+
+/* Boilerplate pages put a bare <a> straight in the flow. Give it link colour
+   so it does not read as body text; buttons there get the shared button look. */
+.main > a:not(.button):not(.btn),
+.main > p > a:not(.button):not(.btn) { color: var(--info); text-decoration: underline; }
+
+/* ------------------------------------------- bare boilerplate page markup */
+
+/* The auth boilerplate's pages are unclassed markup — an <h1>, a <form>, a
+   <table>. Giving those elements the panel treatment here is what makes them
+   look like the same application as this project's own screens, and it does it
+   without editing twenty-seven upstream templates.
+
+   Scoped to `.main > h1 ~ …`: every boilerplate page opens its body with a bare
+   <h1>, and this project's pages put their title inside .page-header instead. So
+   the sibling combinator is what separates the two, and a project page's own
+   <form> — the reconcile apply form, for one — is never caught by these. */
+.main > h1 ~ table {
+    margin: 0 0 10px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+}
+
+.main > h1 + p { margin-bottom: 8px; color: var(--muted); font-size: 12px; }
+
+/* A page action on a boilerplate screen is a bare anchor in the flow. Give it the
+   same outline-button shape the rest of the app uses so it reads as an action. */
+.main > h1 ~ a:not(.button):not(.btn),
+.main > h1 ~ form a:not(.button):not(.btn),
+.main > h1 ~ table td a:not(.button):not(.btn) {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    margin: 0 0 8px;
+    padding: 0 8px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--muted-strong);
+    font-size: 11.5px;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.main > h1 ~ form a:not(.button):not(.btn),
+.main > h1 ~ table td a:not(.button):not(.btn) { margin: 0 3px 0 0; }
+
+.main > h1 ~ a:not(.button):not(.btn):hover,
+.main > h1 ~ form a:not(.button):not(.btn):hover,
+.main > h1 ~ table td a:not(.button):not(.btn):hover {
+    background: var(--surface-soft);
+    border-color: var(--muted);
+    color: var(--text);
+}
+
+/* Action clusters in a boilerplate table cell: several one-field POST forms in a
+   row. Without this each <form> is a block and every button lands on its own line. */
+.main > h1 ~ table td form { display: inline-flex; margin: 0 3px 0 0; }
+.main > h1 ~ table td > a { margin-right: 3px; }
+
+.main > h1 ~ form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px 10px;
+    margin: 0 0 10px;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+}
+
+/* Field-per-div forms (create user, invite) flow as a grid of narrow columns;
+   label-then-input forms (the audit filter) collapse to a single toolbar line. */
+.main > h1 ~ form > div {
+    display: grid;
+    gap: 1px;
+    flex: 0 0 240px;
+}
+
+.main > h1 ~ form > input,
+.main > h1 ~ form > select { width: auto; min-width: 150px; }
+
+.main > h1 ~ form > button,
+.main > h1 ~ form > div > button { align-self: end; }
+
+.main > h1 ~ .error,
+.main > h1 ~ .success {
+    margin: 0 0 8px;
+    padding: 5px 9px;
+    border: 1px solid var(--danger-border);
+    border-radius: var(--radius);
+    background: var(--danger-bg);
+    color: var(--danger);
+    font-size: 12px;
+}
+
+.main > h1 ~ .error p { margin: 0; }
+
+.main > h1 ~ .success {
+    border-color: var(--success-border);
+    background: var(--success-bg);
+    color: var(--success);
+}
+
+.config-page {
+    margin: 0 0 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+}
+
+.config-page > h2 {
+    margin: 0;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-head);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.main .config-page > form {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px 14px;
+    align-items: end;
+    padding: 10px 12px;
+}
+
+.config-page > form > button { justify-self: start; grid-column: 1; }
+
+.form-field label { display: block; }
+
+/* ------------------------------------------------------------- buttons */
+
+.button, .btn,
+button,
+input[type="submit"] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-height: 24px;
+    padding: 0 8px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--muted-strong);
+    font-size: 11.5px;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+    text-decoration: none;
+}
+
+.button i, .btn i { font-size: 12px; }
+
+.button:hover, .btn:hover,
+button:hover,
+input[type="submit"]:hover {
+    background: var(--surface-soft);
+    border-color: var(--muted);
+    color: var(--text);
+}
+
+.button-primary, .btn-primary {
+    background: var(--brand);
+    border-color: var(--brand);
+    color: #fff;
+}
+
+.button-primary:hover, .btn-primary:hover {
+    background: var(--brand-dark);
+    border-color: var(--brand-dark);
+    color: #fff;
+}
+
+.button-secondary, .btn-secondary {
+    background: var(--surface);
+    border-color: var(--border-strong);
+    color: var(--muted-strong);
+}
+
+.button-danger, .btn-danger,
+button.delete-btn, button.revoke-btn {
+    background: var(--surface);
+    border-color: var(--danger-border);
+    color: var(--danger);
+}
+
+.button-danger:hover, .btn-danger:hover,
+button.delete-btn:hover, button.revoke-btn:hover {
+    background: var(--danger-bg);
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+/* Blue reads as "go and change something", per the reference's Edit action. */
+.button-info, .btn-info {
+    background: var(--surface);
+    border-color: var(--info-border);
+    color: var(--info);
+}
+
+.button-info:hover, .btn-info:hover { background: var(--info-bg); border-color: var(--info); }
+
+.button-sm, .btn-sm {
+    min-height: 21px;
+    padding: 0 6px;
+    font-size: 11px;
+}
+
+.button:disabled, .btn:disabled, button:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+}
+
+/* Row action clusters: several small outline buttons that must not wrap apart.
+   nowrap, because wrapping them is never the lesser evil: one over-wide cell
+   elsewhere in the table squeezes this column, and the buttons then stack in
+   EVERY row, multiplying the height of the whole table. .table-wrap already
+   scrolls horizontally, which is the cheaper way to absorb the overflow. */
+.row-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: nowrap;
+}
+
+/* The exception: a cluster whose buttons are labelled with content rather than
+   with a verb. "exclude *.test1.restobox.org.true.test0.restobox.org" cannot be
+   shortened without hiding the exact glob the button will create, so these wrap
+   onto as many lines as they need instead of running off the side of the table. */
+.row-actions-wrap {
+    flex-wrap: wrap;
+    row-gap: 4px;
+}
+
+/* ---------------------------------------------------------------- cards */
+
+.card {
+    margin: 0 0 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: none;
+    overflow: visible;
+}
+
+.card-body { padding: 10px 12px; }
+
+.card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-head);
+}
+
+.card-header h2,
+.card-header h3 {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .01em;
+}
+
+/* A table is a panel's content, not something sitting inside it: it reaches the
+   panel's edges. Most screens wrap the table in a .card-body for its padding, so
+   the padding is cancelled here rather than by editing thirty templates. */
+.card-body > .table-wrap:first-child { margin: -10px -12px 0; }
+.card-body > .table-wrap:first-child:last-child { margin-bottom: -10px; }
+
+/* Explanatory line between a panel header and its table. Kept to one small line so
+   the prose never costs more rows than it saves in confusion. */
+.card-note {
+    margin: 0;
+    padding: 5px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-soft);
+    color: var(--muted);
+    font-size: 11.5px;
+    line-height: 1.4;
+}
+
+.cell-note {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 11px;
+    line-height: 1.35;
+}
+
+.section-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.section-heading h2,
+.section-heading h3 {
+    margin: 0;
+    font-size: 12.5px;
+    font-weight: 700;
+}
+
+.section-heading p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 11.5px;
+}
+
+.toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 6px;
+    font-size: 11.5px;
+}
+
+/* --------------------------------------------------------------- tables */
+
+.table-wrap { overflow-x: auto; }
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: auto;
+}
+
+th, td {
+    padding: 5px 8px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+    text-align: left;
+    font-size: 12.5px;
+}
+
+thead th {
+    padding: 5px 8px;
+    border-bottom: 1px solid var(--border-strong);
+    background: var(--surface-head);
+    color: var(--muted);
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    white-space: nowrap;
+    border-radius: 0;
+}
+
+thead th a {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: inherit;
+}
+
+thead th a:hover { color: var(--brand-dark); }
+
+tbody tr:hover { background: var(--surface-soft); }
+/* The panel border closes the table; a rule under the last row doubles it. */
+tbody tr:last-child td { border-bottom: none; }
+
+td.numeric, th.numeric { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Column widths declared by the page instead of grown from content: a wide table
+   otherwise pushes past the panel and the last column falls off the right edge. */
+table.table-fixed { table-layout: fixed; }
+/* Fixed columns cannot grow, so an unbreakable value (a path, a token) has to be
+   allowed to wrap or it spills across its neighbour. */
+table.table-fixed td { overflow: hidden; overflow-wrap: anywhere; }
+
+/* Headers stay on one line, so at a narrow width they have to be clipped rather
+   than allowed to run into the next column's label. */
+table.table-fixed thead th { overflow: hidden; text-overflow: ellipsis; }
+
+.ellipsis {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mono, td.mono {
+    font-family: 'Consolas', 'Monaco', 'Fira Code', monospace;
+    font-size: 11.5px;
+}
+
+/* The filter row sits inside the table, directly under the headers, so a filter
+   is read in the column it acts on. */
+tr.filter-row td,
+tr.filter-row th {
+    padding: 3px 5px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border-strong);
+    vertical-align: middle;
+}
+
+tr.filter-row input,
+tr.filter-row select {
+    width: 100%;
+    min-width: 0;
+    min-height: 21px;
+    padding: 1px 4px;
+    font-size: 11.5px;
+    border-radius: var(--radius);
+}
+
+tr.filter-row select { padding-right: 16px; background-position: right 3px center; background-size: 11px 11px; }
+
+/* A label the filter row still needs for assistive tech but has no room to show:
+   the column header is the visible label. */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.inline-form {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin: 0;
+    flex-wrap: wrap;
+}
+
+.chip-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-wrap: wrap;
+    padding: 6px 12px;
+    font-size: 11.5px;
+}
+
+.chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 3px 1px 6px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    background: var(--surface-soft);
+    font-size: 11.5px;
+    font-weight: 500;
+}
+
+.chip form { display: inline-flex; margin: 0; }
+
+.chip-remove {
+    min-height: 0;
+    padding: 0 3px;
+    border: 0;
+    background: none;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.chip-remove:hover { background: none; border: 0; color: var(--danger); }
+
+.filter-more {
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-soft);
+}
+
+.filter-more > summary {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 12px;
+    color: var(--muted-strong);
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+    list-style: none;
+}
+
+.filter-more > summary::-webkit-details-marker { display: none; }
+.filter-more > summary::before { content: '\25b8'; color: var(--muted); }
+.filter-more[open] > summary::before { content: '\25be'; }
+.filter-more > .filter-grid { padding: 0 12px 8px; }
+
+.empty-state {
+    padding: 18px 12px;
+    color: var(--muted);
+    text-align: center;
+    font-size: 12px;
+}
+
+.empty-state i {
+    display: block;
+    margin-bottom: 5px;
+    font-size: 20px;
+    opacity: .4;
+}
+
+/* ---------------------------------------------------------------- forms */
+
+.filter-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 6px 10px;
+}
+
+.field { display: grid; gap: 2px; align-content: start; }
+
+.field label,
+.field-label,
+label {
+    color: var(--muted-strong);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .01em;
+}
+
+.form-field { margin-bottom: 8px; }
+
+.input, .select,
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="number"],
+input[type="search"],
+input[type="url"],
+input[type="tel"],
+input[type="date"],
+input[type="datetime-local"],
+select,
+textarea {
+    width: 100%;
+    min-height: 26px;
+    padding: 3px 6px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    background: #fff;
+    color: var(--text);
+    font-size: 12.5px;
+}
+
+select {
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 5px center;
+    background-size: 12px 12px;
+    padding-right: 20px;
+}
+
+textarea { min-height: 88px; resize: vertical; font-size: 12px; }
+
+input[type="checkbox"],
+input[type="radio"] {
+    width: 13px;
+    height: 13px;
+    min-height: 0;
+    padding: 0;
+    margin: 0;
+    accent-color: var(--brand);
+    vertical-align: middle;
+}
+
+.input:focus, .select:focus,
+input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: var(--shadow-focus);
+}
+
+input[aria-invalid="true"],
+select[aria-invalid="true"],
+textarea[aria-invalid="true"] {
+    border-color: var(--danger);
+    background: #fffafa;
+}
+
+input::placeholder, textarea::placeholder { color: #9aa1ad; }
+
+.form-errors, ul.form-errors { list-style: none; margin: 2px 0 0; padding: 0; }
+.form-errors li { color: var(--danger); font-size: 11px; font-weight: 500; }
+.field-error, .error { color: var(--danger); font-size: 11px; }
+
+.form-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 0 0 10px;
+    padding: 7px 10px;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+}
+
+.form-alert i { flex-shrink: 0; font-size: 14px; margin-top: 1px; }
+.form-alert-content { min-width: 0; }
+.form-alert-text { margin: 0; font-size: 12px; line-height: 1.45; }
+.form-alert-list { margin: 0; padding-left: 15px; }
+.form-alert-list li { margin: 0; font-size: 12px; font-weight: 600; }
+
+.form-alert-error {
+    background: var(--danger-bg);
+    border-color: var(--danger-border);
+    color: var(--danger);
+    box-shadow: none;
+}
+
+/* ---------------------------------------------------------------- flash */
+
+.flash-stack { display: grid; gap: 5px; margin-bottom: 8px; }
+.flash-stack:empty { display: none; }
+
+.flash,
+.flash-success, .flash-error, .flash-warning, .flash-info {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    padding: 5px 9px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.flash i { flex-shrink: 0; font-size: 14px; margin-top: 1px; }
+
+.flash-success { border-color: var(--success-border); background: var(--success-bg); color: var(--success); }
+.flash-error { border-color: var(--danger-border); background: var(--danger-bg); color: var(--danger); }
+.flash-warning { border-color: var(--warning-border); background: var(--warning-bg); color: var(--warning); }
+.flash-info { border-color: var(--info-border); background: var(--info-bg); color: var(--info); }
+
+.impersonation-banner,
+.admin-impersonation-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px;
+    background: var(--warning-bg);
+    border-bottom: 1px solid var(--warning-border);
+    color: var(--warning);
+    font-size: 11.5px;
+    font-weight: 600;
+}
+
+/* ---------------------------------------------------------------- pills */
+
+.severity-pill, .status-pill, .role-pill, .locked-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 5px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-soft);
+    color: var(--muted-strong);
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: .03em;
+    line-height: 1.5;
+    white-space: nowrap;
+}
+
+.severity-info, .status-active { background: var(--info-bg); color: var(--info); border-color: var(--info-border); }
+.severity-warn { background: var(--warning-bg); color: var(--warning); border-color: var(--warning-border); }
+.severity-error, .status-inactive, .locked-indicator { background: var(--danger-bg); color: var(--danger); border-color: var(--danger-border); }
+.severity-debug { background: var(--surface-soft); color: var(--muted-strong); border-color: var(--border); }
+.severity-critical { background: #f6ecfd; color: #6e12c4; border-color: #ddc4f4; }
+.status-ok, .status-success { background: var(--success-bg); color: var(--success); border-color: var(--success-border); }
+.role-superadmin { background: var(--brand-soft); color: var(--brand-dark); border-color: #edcbae; }
+.role-admin { background: var(--info-bg); color: var(--info); border-color: var(--info-border); }
+
+.muted { color: var(--muted); }
+
+/* -------------------------------------------------------- metric strip */
+
+/* One strip of equal columns whatever the card count, so a page adding a metric
+   does not have to restate a column template. */
+.metric-strip {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: 0;
+    margin-bottom: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    overflow: hidden;
+}
+
+.metric-card {
+    position: relative;
+    padding: 6px 10px;
+    border: 0;
+    border-left: 1px solid var(--border);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    overflow: hidden;
+}
+
+.metric-card:first-child { border-left: 0; }
+.metric-card::before { content: none; }
+
+.metric-label {
+    display: block;
+    margin: 0;
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+}
+
+.metric-value {
+    display: block;
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+}
+
+.metric-note {
+    display: block;
+    margin-top: 1px;
+    color: var(--muted);
+    font-size: 10.5px;
+    line-height: 1.35;
+}
+
+/* --------------------------------------------------------------- detail */
+
+.detail-grid { display: grid; gap: 10px; }
+
+.detail-section { padding: 10px 12px; }
+
+.detail-section h3 {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 0 8px;
+    padding-bottom: 5px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.detail-section h3 i { color: var(--brand); font-size: 13px; }
+
+.detail-fields {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 7px 14px;
+}
+
+.detail-field { min-width: 0; }
+
+.detail-field strong {
+    display: block;
+    margin-bottom: 0;
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+}
+
+.detail-field span,
+.detail-field > *:not(strong) {
+    font-size: 12.5px;
+    color: var(--text);
+    word-break: break-word;
+}
+
+.code-block {
+    padding: 9px 11px;
+    border: 1px solid #232c3d;
+    border-radius: var(--radius);
+    background: #131a26;
+    color: #c9d8ee;
+    max-height: 420px;
+    overflow: auto;
+    font-family: 'Consolas', 'Monaco', 'Fira Code', monospace;
+    font-size: 11.5px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.token-box {
+    padding: 6px 9px;
+    border: 1px solid var(--info-border);
+    border-radius: var(--radius);
+    background: var(--info-bg);
+    color: var(--info);
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 11.5px;
+    word-break: break-all;
+}
+
+/* ----------------------------------------------------------- pagination */
+
+.pagination {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex-wrap: wrap;
+    margin: 0;
+    padding: 6px 8px;
+    border-top: 1px solid var(--border);
+}
+
+.pagination > a,
+.pagination > span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 21px;
+    padding: 0 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: #fff;
+    color: var(--muted-strong);
+    font-size: 11.5px;
+    font-weight: 500;
+}
+
+.pagination > a:hover { border-color: var(--muted); color: var(--text); }
+
+.pagination .is-current {
+    background: var(--brand);
+    border-color: var(--brand);
+    color: #fff;
+    font-weight: 700;
+}
+
+/* Boilerplate pagination is a bare <nav> of links with no wrapper class. */
+.main nav[aria-label="Pagination"] {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+
+.main nav[aria-label="Pagination"] a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 21px;
+    padding: 0 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: #fff;
+    color: var(--muted-strong);
+    font-size: 11.5px;
+    text-decoration: none;
+}
+
+.main nav[aria-label="Pagination"] a[aria-current="page"] {
+    background: var(--brand);
+    border-color: var(--brand);
+    color: #fff;
+    font-weight: 700;
+}
+
+/* ------------------------------------------------------- searchable box */
+
+.searchable-wrapper { position: relative; }
+
+.searchable-wrapper::after {
+    content: '\e136';
+    position: absolute;
+    right: 6px;
+    bottom: 6px;
+    font-family: 'Phosphor';
+    font-size: 11px;
+    color: var(--muted);
+    pointer-events: none;
+    z-index: 2;
+}
+
+.searchable-wrapper.is-open::after { color: var(--brand); }
+.searchable-wrapper input { padding-right: 20px; }
+.searchable-wrapper.is-open input { border-color: #2563eb; box-shadow: var(--shadow-focus); }
+
+.search-results {
+    position: absolute;
+    top: calc(100% + 1px);
+    left: 0;
+    right: 0;
+    z-index: 20;
+    display: none;
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 2px 0;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    background: #fff;
+    box-shadow: var(--shadow-lg);
+}
+
+.search-option { padding: 3px 7px; font-size: 12px; cursor: pointer; }
+.search-option:hover, .search-option.is-active { background: var(--info-bg); }
+.search-option.is-empty, .search-option.is-hint { cursor: default; color: var(--muted); font-size: 11.5px; }
+
+/* Inside a table filter cell the dropdown must escape the cell box. */
+tr.filter-row td { position: relative; }
+tr.filter-row .searchable-wrapper::after { bottom: 4px; right: 4px; }
+
+/* ---------------------------------------------------------------- modal */
+
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(15, 23, 42, .5);
+    z-index: 100;
+}
+
+.modal {
+    width: 520px;
+    max-width: 100%;
+    padding: 14px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    background: #fff;
+    box-shadow: var(--shadow-lg);
+}
+
+.modal h3 { margin: 0 0 4px; font-size: 14px; font-weight: 700; }
+
+/* ---------------------------------------------------------------- login */
+
+/* No sidebar means nobody is signed in: login, password reset, verification. Those
+   are the boilerplate's bare forms too, so they are centred and narrowed here rather
+   than by editing upstream's templates. */
+.layout:not(.layout--with-sidebar) > .main {
+    display: grid;
+    justify-content: center;
+    align-content: start;
+    gap: 4px;
+    padding: 72px 16px 16px;
+}
+
+.layout:not(.layout--with-sidebar) > .main > * {
+    width: 340px;
+    max-width: 100%;
+    margin-left: 0;
+    margin-right: 0;
+}
+
+.layout:not(.layout--with-sidebar) > .main > h1 { font-size: 15px; }
+
+.layout:not(.layout--with-sidebar) > .main > h1 ~ form {
+    display: grid;
+    gap: 7px;
+    padding: 14px;
+}
+
+.layout:not(.layout--with-sidebar) > .main > h1 ~ form > div { flex: none; }
+
+.layout:not(.layout--with-sidebar) > .main > h1 ~ form > input,
+.layout:not(.layout--with-sidebar) > .main > h1 ~ form > select,
+.layout:not(.layout--with-sidebar) > .main > h1 ~ form > button { width: 100%; min-width: 0; }
+
+/* The one submit on a sign-in form is the page's only action, so it carries the
+   accent even though upstream's markup gives it no class. */
+.layout:not(.layout--with-sidebar) > .main > h1 ~ form > button[type="submit"] {
+    min-height: 28px;
+    background: var(--brand);
+    border-color: var(--brand);
+    color: #fff;
+}
+
+.layout:not(.layout--with-sidebar) > .main > h1 ~ form > button[type="submit"]:hover {
+    background: var(--brand-dark);
+    border-color: var(--brand-dark);
+    color: #fff;
+}
+
+
+.login-shell {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: var(--bg);
+}
+
+.login-card {
+    width: 380px;
+    max-width: 100%;
+    padding: 22px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, .08);
+}
+
+.login-card .brand-mark {
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius);
+    background: var(--brand);
+    color: #fff;
+    font-size: 17px;
+}
+
+.brand-mark {
+    width: 26px;
+    height: 26px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius);
+    background: var(--brand);
+    color: #fff;
+    font-size: 14px;
+    flex-shrink: 0;
+    box-shadow: none;
+}
+
+.brand-copy strong { display: block; font-size: 13px; font-weight: 600; }
+.brand-copy span { display: block; color: var(--muted); font-size: 11px; }
+
+/* ------------------------------------------------------- narrow viewport */
+
+/* ~1100px still has to be usable: the sidebar narrows, nothing overlaps. */
+@media (max-width: 1200px) {
+    :root { --sidebar-width: 176px; }
+    .detail-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .filter-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+/* ------------------------------------------------------------------ icons */
+
+/* The application draws icons with the Phosphor icon font, whose glyphs are
+   <i class="ph-*"> elements sized by --icon-font-size. This export has no font
+   dependency, so the same glyphs are inline SVG instead. Both are sized by the
+   same token and inherit colour the same way, which is what lets a component
+   rule say "the icon in a button is 12px" once and mean either one.
+
+   These rules are the only addition to the application's sheet. Drop them if
+   you are using the icon font, keep them if you are using the sprite. */
+
+.icon {
+    width: 1em;
+    height: 1em;
+    flex: 0 0 auto;
+    display: inline-block;
+    vertical-align: -.13em;
+    font-size: var(--icon-font-size);
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.button .icon, .btn .icon { font-size: 12px; }
+
+.sidebar .brand .icon,
+.sidebar-brand .icon { color: var(--brand); font-size: 15px; }
+
+.sidebar nav > a .icon,
+.nav-link .icon { width: 15px; font-size: 14px; opacity: .75; }
+
+.sidebar nav > a.active .icon,
+.nav-link.is-active .icon { color: #e2914f; opacity: 1; }
+
+.topbar-identity .icon { color: var(--muted); font-size: 13px; }
+.detail-section h3 .icon { color: var(--brand); font-size: 13px; }
+.flash .icon, .form-alert .icon { font-size: 14px; margin-top: 1px; }
+.empty-state .icon { display: block; margin: 0 auto 5px; font-size: 20px; opacity: .4; }
+.severity-pill .icon, .status-pill .icon, .role-pill .icon, .chip .icon { font-size: 11px; }
+
+/* The application draws the magnifier inside .searchable-wrapper::after with a
+   Phosphor glyph. With no icon font loaded that is an empty box, so the same
+   mark is drawn as a background image instead — one for rest, one for open. */
+.searchable-wrapper::after {
+    content: '';
+    width: 11px;
+    height: 11px;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='10.8' cy='10.8' r='6'/%3E%3Cpath d='M15.3 15.3L20 20'/%3E%3C/svg%3E") no-repeat center / 11px 11px;
+}
+
+.searchable-wrapper.is-open::after {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23b4551d' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='10.8' cy='10.8' r='6'/%3E%3Cpath d='M15.3 15.3L20 20'/%3E%3C/svg%3E");
+}
+
+/* ============================================================================
+   END OF THEME.
+   ============================================================================ */

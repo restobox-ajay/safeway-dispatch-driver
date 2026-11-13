@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#10131a">
+    <title>{% block title %}FVST Driver{% endblock %}</title>
+    <link rel="manifest" href="/driver-app/manifest.webmanifest">
+    <link rel="icon" href="/driver-app/img/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/driver-app/img/icon-192.png">
+    <link rel="stylesheet" href="/driver-app/css/style.css">
+    <link rel="stylesheet" href="/driver-app/css/app.css">
+    {% block head %}{% endblock %}
+</head>
+<body{% block body_class %}{% endblock %}>
+{% block body %}
+<div class="phone-frame-wrap">
+    <div class="phone-frame">
+        <div class="app-screen">
+            {% block screen %}{% endblock %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}{% endblock %}
+</body>
+</html>

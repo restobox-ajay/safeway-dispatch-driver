@@ -1,0 +1,108 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Htaccess Lock{% endblock %}
+
+{% block body %}
+<h1>Htaccess Lock</h1>
+
+{% for message in app.flashes('error') %}<div class="error">{{ message }}</div>{% endfor %}
+{% for message in app.flashes('success') %}<div class="success">{{ message }}</div>{% endfor %}
+
+<p>
+    An IP-whitelist-only lock enforced by the web server itself. Enabling it writes a managed block at the
+    top of <code>{{ filePath }}</code>; every other line of that file is left alone. Because it runs before
+    PHP, it covers the whole site — static files, the admin panel and the database-console gateway —
+    not just the login form.
+</p>
+<p>Your IP as the application sees it: <strong>{{ currentIp }}</strong></p>
+
+{% if fileState.error %}
+    <div class="error">{{ fileState.error }}</div>
+{% elseif not fileState.writable %}
+    <div class="error">The web server user cannot write {{ filePath }}; saving will fail.</div>
+{% elseif not fileState.inSync %}
+    <div class="warning">
+        The saved settings and the file disagree
+        ({{ values.enabled == '1' ? 'the lock is enabled but its block is missing or different in the file' : 'the lock is off but a block is still present in the file' }}).
+        Saving again re-applies the settings.
+    </div>
+{% endif %}
+
+{% if errors %}
+    <div class="error">
+        <ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul>
+    </div>
+{% endif %}
+
+<form method="post" action="{{ path('app_admin_htaccess_lock_save') }}">
+    <input type="hidden" name="_token" value="{{ csrf_token('htaccess_lock_save') }}">
+
+    <fieldset>
+        <legend>1. Lock</legend>
+        <label><input type="radio" name="enabled" value="0" {{ values.enabled != '1' ? 'checked' }}> Off — nothing is enforced; the fields below are kept but ignored</label><br>
+        <label><input type="radio" name="enabled" value="1" {{ values.enabled == '1' ? 'checked' }}> On — only the whitelisted IPs can reach the site</label>
+    </fieldset>
+
+    <fieldset>
+        <legend>2. Who gets in</legend>
+        <p>
+            <label for="ips">Allowed IPs — one per line. IPv4, IPv6 or CIDR (e.g. <code>203.0.113.0/24</code>).
+            Your own IP must be included or the save is refused.</label><br>
+            <textarea id="ips" name="ips" rows="8" cols="60" spellcheck="false">{{ values.ips }}</textarea>
+        </p>
+        <p>
+            <label for="exempt_paths">Exempt paths — one per line, no domain (e.g. <code>/health</code>). These stay reachable
+            from <em>any</em> IP. A trailing <code>*</code> means "everything under this prefix" (e.g. <code>/webhooks/*</code>).</label><br>
+            <textarea id="exempt_paths" name="exempt_paths" rows="5" cols="60" spellcheck="false">{{ values.exempt_paths }}</textarea>
+        </p>
+    </fieldset>
+
+    <fieldset>
+        <legend>3. What a blocked visitor sees</legend>
+        <p>
+            <label for="status_code">Status code</label>
+            <select id="status_code" name="status_code">
+                <option value="403" {{ values.status_code == '403' ? 'selected' }}>403 Forbidden</option>
+                <option value="404" {{ values.status_code != '403' ? 'selected' }}>404 Not Found (looks like the site isn't here)</option>
+            </select>
+        </p>
+        <p>
+            <label for="error_file">Error file — a file under the web root shown to blocked visitors (e.g. <code>/blocked.html</code>).
+            Leave blank for an empty response.</label><br>
+            <input id="error_file" name="error_file" type="text" size="40" value="{{ values.error_file }}" spellcheck="false">
+        </p>
+        <p><small>With 404 selected the file (or a blank body) also applies to the web server's own 404s while the lock is on.</small></p>
+    </fieldset>
+
+    <button type="submit">Save</button>
+</form>
+
+<hr>
+
+<h2>Self-test</h2>
+<p>
+    Proves this server really enforces what is written to <code>.htaccess</code> — a lock that is silently ignored
+    (AllowOverride off, a server that skips a directive) fails <em>open</em>. The test writes temporary blocks, requests
+    this site from the server itself, then restores the original file exactly. Real visitors are blocked for a few
+    seconds while it runs.
+</p>
+<form method="post" action="{{ path('app_admin_htaccess_lock_test') }}">
+    <input type="hidden" name="_token" value="{{ csrf_token('htaccess_lock_test') }}">
+    <button type="submit">Run enforcement self-test</button>
+</form>
+
+{% if lastTest %}
+    <h3>Last result — {{ lastTest.passed ? 'PASSED' : 'FAILED' }} ({{ lastTest.ranAt|date('Y-m-d H:i:s') }} UTC)</h3>
+    <ul>
+        {% for step in lastTest.steps %}
+            <li>{{ step.passed ? '✔' : '✘' }} {{ step.label }} — {{ step.detail }}</li>
+        {% endfor %}
+    </ul>
+{% endif %}
+
+<hr>
+<p>
+    <strong>Locked out?</strong> From the server shell run <code>php bin/console app:htaccess-lock:disable</code>,
+    or delete the block between the <code># ###&gt; app/htaccess-lock ###</code> markers in <code>.htaccess</code>.
+</p>
+{% endblock %}

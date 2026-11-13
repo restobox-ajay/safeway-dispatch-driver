@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+<body>
+<p>A new login to your account was detected from an unrecognized device or location.</p>
+<ul>
+    <li><strong>IP Address:</strong> {{ ip }}</li>
+    <li><strong>Device / Browser:</strong> {{ userAgent }}</li>
+    <li><strong>Time:</strong> {{ loggedAt|date('Y-m-d H:i:s') }} UTC</li>
+</ul>
+<p>If this was you, no action is needed.</p>
+<p>If you do not recognize this login, please change your password immediately.</p>
+</body>
+</html>

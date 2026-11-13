@@ -1,0 +1,138 @@
+/* =========================================================================
+   FVST Express Driver web app — on top of the mockup stylesheet (style.css,
+   copied unchanged from mockup-fvstexpress-admin/public/mockup-driver).
+   The mockup shows the app inside a desktop "phone frame"; on a real phone
+   the frame IS the screen. On a wide screen the frame preview is kept.
+   ========================================================================= */
+
+/* -------------------------------------------------------------------------
+   Theme: matched to the fvstexpress-admin app (public/assets/css/style.css,
+   its /login page). Same palette as the driver mockup; these are the tokens
+   where the admin theme differs.
+   ------------------------------------------------------------------------- */
+:root {
+  --color-text: #ffffff;
+  --color-text-muted: #d6ddeb;
+  --color-text-faint: #a8b0c2;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+}
+
+/* Driver /login: the mockup's login-screen inside the phone frame. Same input styling for the PIN (password) field. */
+.login-screen .form-group input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border-strong);
+  color: var(--color-text);
+  border-radius: var(--radius-sm);
+  padding: 9px 10px;
+  font-size: 16px;
+  font-family: var(--font);
+}
+.login-screen .form-group input:focus { outline: none; border-color: var(--color-accent); }
+.login-screen .alert { font-size: 13px; margin: 0 0 14px; }
+
+
+@media (max-width: 520px) {
+  .phone-frame-wrap {
+    padding: 0;
+    min-height: 100dvh;
+    background: var(--color-bg);
+  }
+  .phone-frame {
+    width: 100%;
+    height: 100dvh;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+}
+
+/* Room for the phone's notch / home indicator when installed to the home screen. */
+.phone-frame {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Server messages (login errors, API refusals). */
+.form-error {
+  color: var(--color-danger);
+  font-size: 14px;
+  margin: 4px 0 10px;
+}
+
+/* Hidden-but-announced text for screen readers. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* The view switch uses links (each view has its own URL); style them like the mockup's buttons. */
+.segmented a {
+  flex: 1;
+  text-align: center;
+  color: var(--color-text);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 3px 4px;
+  text-decoration: none;
+}
+.segmented a.active {
+  background: var(--color-accent);
+  color: #fff;
+}
+
+/* Short messages (taps saved offline, API refusals) — the Android app's snackbar. */
+.toast {
+  position: absolute;
+  left: 12px; right: 12px; bottom: 76px;
+  z-index: 60;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border-strong);
+  color: var(--color-text);
+  font-size: 13.5px;
+  box-shadow: var(--shadow-md);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.2s, transform 0.2s;
+  pointer-events: none;
+}
+.toast.is-shown { opacity: 1; transform: none; }
+
+/* The photo button is a <label> around a hidden file input. */
+.btn.is-disabled { opacity: 0.5; pointer-events: none; }
+
+/* A page can render the Online switch hidden (Analytics): it still carries the state for GPS. */
+.online-toggle[hidden] { display: none; }
+
+/* In-app camera (task-camera.html) — a full-screen sheet over the stop page, so the
+   proof-of-delivery form keeps its state while the driver takes a photo. */
+.camera-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  background: #000;
+}
+.camera-overlay[hidden] { display: none; }
+.camera-view { overflow: hidden; }
+.camera-view video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.camera-view .camera-close { z-index: 2; border: 0; cursor: pointer; }
+.camera-view .camera-hint { position: relative; z-index: 1; padding: 0 24px; }
+.camera-view .camera-stamp { z-index: 1; }
+.camera-shutter:disabled { opacity: 0.4; cursor: default; }

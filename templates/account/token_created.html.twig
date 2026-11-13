@@ -1,0 +1,13 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Token Created{% endblock %}
+
+{% block body %}
+<h1>Token Created</h1>
+
+<p>Your new token <strong>{{ token_name }}</strong> has been created. Copy it now — it will not be shown again.</p>
+
+<div class="token-plaintext">{{ token_plaintext }}</div>
+
+<a href="{{ path('app_account_tokens') }}">Back to Tokens</a>
+{% endblock %}

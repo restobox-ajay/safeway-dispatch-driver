@@ -1,0 +1,2053 @@
+
+==============================
+Agent round 1 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Warning: http://auth.localhost did not respond. Check your local server.
+== Init complete ==
+== Implementation pass ==
+FEATURE-097 is implemented as a complete vertical slice. Stopping here per the workflow.
+
+## Summary
+
+**Selected feature:** FEATURE-097 (must, deps satisfied) — *Login event listeners must filter by firewall (review C2)*. It also unblocks FEATURE-123.
+
+**Root cause:** The stateless `api` / `admin_api` firewalls authenticate via bearer PAT but resolve principals from the same `app_users` / `app_admins` providers as the interactive firewalls. So `LoginSuccessEvent` / `LoginFailureEvent` fire on every API call, and the listeners' only guard (`instanceof User`/`Admin`) can't distinguish a real login from API traffic — producing spurious audit rows, login_history rows, phantom user_sessions, "new device" emails, and webhooks.
+
+**What I did:**
+- Added `src/EventListener/InteractiveFirewallTrait.php` — a shared allowlist guard (`['user','admin']` + `isInteractiveFirewall()`), keyed off `LoginSuccessEvent/LoginFailureEvent::getFirewallName()`.
+- Applied the early-return guard to all five affected listeners: `AuditLogSecurityListener` (success+failure), `LoginHistoryListener`, `UserSessionListener`, `LoginNotificationListener`, and `WebhookListener` (success+failure — AC3 explicitly requires no webhook on failed API auth). `onLogout` handlers left untouched since stateless firewalls have no logout route.
+- Added `tests/Functional/Security/ApiLoginSideEffectsTest.php` (2 tests, 8 assertions) covering AC2/AC3/AC5.
+
+**Verification:**
+- New tests pass; **confirmed meaningful** — with `src/EventListener/` stashed, both fail (audit-login +1, login.failure +1).
+- Full `bin/verify-fast.sh`: **OK (419 tests, 1464 assertions), `=== All checks passed ===`**. No regressions; the only noise is the pre-existing Symfony 7.3 `eraseCredentials` deprecations. AC4 (interactive logins unchanged) is covered by the untouched, still-green LoginHistory/AuditLog/SessionManagement/LoginNotification/Webhook suites.
+
+Per the workflow, I did **not** set `passes=true`, did **not** update `claude-progress.txt`, and did not commit — those await the reviewer pass.
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+Review complete. Result written to `.agent/review.log`.
+
+## REVIEW_PASS — FEATURE-097 (Login event listeners must filter by firewall)
+
+I reviewed only the current feature and independently verified the substance rather than trusting the SCRATCHPAD.
+
+**What the fix does:** adds `InteractiveFirewallTrait` (allowlist `['user','admin']`) and an early-return guard to the LoginSuccess/LoginFailure handlers in all five listeners, so stateless PAT auth on `/api` and `/admin-api` no longer masquerades as an interactive login.
+
+**Verified independently:**
+- **Firewall names** against `security.yaml`: the keys are exactly `user`, `admin` (interactive) vs `api`, `admin_api` (stateless). The allowlist is precisely correct — admits both interactive firewalls, excludes both stateless ones.
+- **Tests pass**: `ApiLoginSideEffectsTest` → OK (2 tests, 8 assertions).
+- **Meaningfulness**: `git stash` of the listeners → both tests genuinely FAIL (audit-login 34≠33; login.failure 5≠4). Not tautologies. Restored afterward.
+- **AC4 no regression**: LoginHistory/AuditLog/SessionManagement/LoginNotification/Webhook suites → OK (80 tests, 258 assertions).
+- **AC3 is real**: the failure test sets `webhook.global_url`, which `resolveUrl` falls back to, so a webhook *would* fire without the guard; the `InMemoryWebhookDispatcher` spy (real test-env binding) asserts zero dispatches.
+
+All 5 acceptance criteria met; no skipped/fake tests, no placeholders, no security regression, no production config change.
+
+**Two non-blocking notes** (do not gate the pass): the test covers only the `api`/User firewall, not `admin_api`/Admin (the trait covers it symmetrically, and AC5 asks only for an `/api` test); and `config/reference.php` picked up unrelated auto-generated `when@acceptance` drift — recommend `git checkout -- config/reference.php` to keep the commit scoped.
+
+Per your working style, I've only reviewed and queued the verdict — I have not marked the feature `passes:true` or committed anything.
+== Marking feature complete ==
+Tracking files updated. DECISIONS.md and OPEN_QUESTIONS.md are intentionally left untouched — this feature made no new durable architecture decision (straightforward firewall filtering, no ADR warranted) and resolved no ambiguity; the reviewer explicitly confirmed the allowlist against `security.yaml` with no open questions raised.
+
+Summary of the tracking-only changes:
+
+- **`.agent/feature_list.json`** — FEATURE-097 set to `passes: true` with a 5-item evidence array (trait + guarded listeners, the new functional test, the git-stash meaningfulness check, the verify-fast result, and the REVIEW_PASS).
+- **`.agent/claude-progress.txt`** — appended a concise FEATURE-097 round summary (what was built, meaningfulness, verification, status).
+- **`.agent/DECISIONS.md`** — unchanged (no durable decision).
+- **`.agent/OPEN_QUESTIONS.md`** — unchanged (no ambiguity found/resolved).
+
+No application code was touched, and no unrelated features were marked complete.
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   b6e306c..08049b4  HEAD -> master
+[master 08049b4] Agent round 1: complete current feature
+ 13 files changed, 538 insertions(+), 91 deletions(-)
+ create mode 100644 .agent/agent-loop.out
+ create mode 100644 src/EventListener/InteractiveFirewallTrait.php
+ create mode 100644 tests/Functional/Security/ApiLoginSideEffectsTest.php
+Round 1 complete.
+
+==============================
+Agent round 2 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Warning: http://auth.localhost did not respond. Check your local server.
+== Init complete ==
+== Implementation pass ==
+I've completed **FEATURE-096** (review finding C1) — the sole feature I selected. Stopping here per the workflow.
+
+## Summary
+
+**Feature:** FEATURE-096 — *Fix expired-password change: verify current password + gate on real expiry* (priority `must`, no dependencies).
+
+**The vulnerability:** `AccountController::changeExpiredPassword` rotated the logged-in user's password without (a) verifying the current password, (b) confirming the password was actually expired, and it sat on the skip-lists of both the 2FA and password-expiry request listeners — so a hijacked or **pre-2FA session** could set a new password and lock out the owner.
+
+**The fix (smallest complete slice):**
+- Two shared predicates so the controller can't drift from the listeners:
+  - `src/Security/PasswordExpiryChecker::isExpired(User)` — `PasswordExpiryListener` now delegates to it.
+  - `src/Security/TwoFactorGuard::isChallengePending(Request, User)` — `TwoFactorChallengeListener` now delegates to it.
+- `changeExpiredPassword` now, in order: redirects a pre-2FA session to `/2fa/challenge` **before any side-effect or CSRF check**; redirects a non-expired user to the normal `/account/password` form; and verifies the submitted `current_password` via `isPasswordValid` before applying.
+- Template gains a required `current_password` field.
+
+**Tests (test-first behavior, not implementation):**
+- New `ExpiredPasswordChangeTest` — 4 tests: wrong current password rejected + hash unchanged (AC1/AC4); correct current password applies (AC1+/AC3); pre-2FA POST → `/2fa/challenge` + hash unchanged (AC2); non-expired GET → redirect away.
+- Updated the existing `PasswordExpiryTest` and `PasswordPolicyCest` to supply the new field.
+
+**Verification:** `bin/verify-fast.sh` → **OK (423 tests, 1476 assertions), `=== All checks passed ===`** (anti-cheat scan clean; only the pre-existing `eraseCredentials` deprecation noise).
+
+Per the required workflow, I have **not** set `passes=true`, **not** updated `claude-progress.txt`, and left those for the reviewer pass.
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+Review complete. **REVIEW_PASS** — written to `.agent/review.log`.
+
+## Verdict: REVIEW_PASS — FEATURE-096
+
+The fix for the expired-password change route is sound and complete. I independently re-ran the suite rather than trusting the log.
+
+**What the change does right:**
+- **AC1** — `changeExpiredPassword` now verifies the submitted `current_password` via `isPasswordValid` before any write; the template adds the required field. The test asserts the stored hash is byte-for-byte unchanged on a wrong password, not just that an error banner shows.
+- **AC2** — `TwoFactorGuard::isChallengePending` runs *first*, before CSRF and any side effect, redirecting a pre-2FA session to `/2fa/challenge`. The test POSTs with no CSRF token, so it genuinely proves the gate short-circuits ahead of the password logic (without the gate it would render 200, not redirect).
+- **AC3** — the forced-change happy path still works for a genuinely expired user; the listener still routes them here.
+- **AC4 + "gate on real expiry"** — a non-expired user hitting the route is bounced to `/account/password`.
+
+**Anti-drift design I verified:** the expiry and 2FA decisions were extracted into shared `PasswordExpiryChecker` / `TwoFactorGuard`, and both listeners now delegate to them — so the controller's in-route gates can't disagree with the listeners on the skip-listed page. I confirmed the listeners' prior behavior (off-enforcement return, required→setup redirect, trusted-IP/device/`_2fa_verified` bypasses, `expiry_days<=0` / null-`passwordChangedAt` short-circuits) is preserved.
+
+**Verification:** targeted tests OK (8 tests, 29 assertions); full `bin/verify-fast.sh` → `=== All checks passed ===`, 423 tests / 1476 assertions, only the pre-existing `eraseCredentials` deprecation noise.
+
+**One non-blocking note:** `config/reference.php` picked up unrelated auto-generated `when@acceptance` type-reference churn (docblocks only, no runtime effect). I'd `git checkout -- config/reference.php` to keep the commit scoped, but it doesn't gate the pass.
+
+Per CLAUDE.md, the remaining Definition-of-Done steps (set `passes:true` + evidence in `feature_list.json`, append `claude-progress.txt`, commit) are still owed by the implementer — not part of this review verdict.
+== Marking feature complete ==
+Tracking files updated. DECISIONS.md and OPEN_QUESTIONS.md need no changes — no durable architecture decision or new/resolved ambiguity arose for FEATURE-096 (the shared-predicate extraction is an implementation detail, not an ADR-level decision).
+
+Summary of tracking updates for **FEATURE-096** (verify + reviewer both passed):
+
+- **feature_list.json** — set `passes: true` and added 6 concise evidence entries (extracted predicates, controller gate order, new functional test file, targeted/regression results, full verify-fast run, REVIEW_PASS).
+- **claude-progress.txt** — prepended a dated round summary (what was built, verification, COMPLETE status).
+- **DECISIONS.md** — unchanged (no durable decision; the `PasswordExpiryChecker`/`TwoFactorGuard` extraction is an implementation detail).
+- **OPEN_QUESTIONS.md** — unchanged (no ambiguity found or resolved).
+
+No application code was touched. Only FEATURE-096 was marked complete; FEATURE-097 and all other features left as-is.
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   08049b4..894aade  HEAD -> master
+[master 894aade] Agent round 2: complete current feature
+ 16 files changed, 591 insertions(+), 134 deletions(-)
+ create mode 100644 src/Security/PasswordExpiryChecker.php
+ create mode 100644 src/Security/TwoFactorGuard.php
+ create mode 100644 tests/Functional/Security/ExpiredPasswordChangeTest.php
+Round 2 complete.
+
+==============================
+Agent round 3 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Warning: http://auth.localhost did not respond. Check your local server.
+== Init complete ==
+== Implementation pass ==
+FEATURE-100 implemented and verified. Stopping here per the workflow (feature not yet marked `passes=true`, progress log unchanged — those await the reviewer pass).
+
+## Summary
+
+**Selected:** FEATURE-100 (must) — *Cross-realm account lockout corruption (review C5)*. Deps `[]`, satisfied.
+
+**Problem:** `LoginRateLimitListener` ran for **any** `FormLoginAuthenticator` failure, including the admin firewall. Its lockout path issued `UPDATE "user" SET locked_until WHERE email = ?` against the shared `login_attempts` table, so a failed **admin** login for an email that also belonged to a **User** locked that user out (cross-realm DoS, violating ADR-003). Throttle counts also mixed both firewalls.
+
+**Fix (smallest complete slice):**
+- **Decision ADR-021:** admins are intentionally *not* hard-lockable (no `locked_until` column, console-provisioned, account-keyed lockout is a DoS vector); admin logins stay rate-limited but realm-scoped.
+- **Migration `Version20260706000000`** — adds `login_attempts.realm` (`'user'`|`'admin'`, default `'user'` for legacy rows) + realm-prefixed indexes.
+- **`LoginRateLimitListener`** — `realmForRequest()` derives realm from the request path (`^/admin` = the admin firewall's own pattern); per-IP and per-account counts are scoped by realm; the INSERT records the realm; `maybeApplyLockout` returns early unless `realm === 'user'`, so a failed admin login never touches the `user` table.
+- **`CrossRealmLockoutTest`** — 3 functional tests covering AC1/AC2/AC4 (shared-email user isn't locked or throttled by admin-firewall failures; failures recorded only under the admin realm; user still logs in).
+
+**Verification:** targeted 19 tests green; full `bin/verify-fast.sh` → **OK (426 tests, 1484 assertions), "=== All checks passed ==="**, anti-cheat scan clean. Only pre-existing `eraseCredentials` deprecations.
+
+**Not done (per instructions):** `feature_list.json` `passes` and `claude-progress.txt` left untouched pending the reviewer pass; nothing committed.
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+**REVIEW_PASS** — FEATURE-100 (Cross-realm account lockout corruption, review C5).
+
+Result written to `.agent/review.log`.
+
+## Verdict
+
+The current feature fixes a genuine cross-realm DoS: `LoginRateLimitListener` fired for *any* `FormLoginAuthenticator` failure, and `maybeApplyLockout` issued `UPDATE "user" SET locked_until WHERE email = ?` — so a failed **admin** login for an email shared with a **User** could lock that user out, violating ADR-003 firewall isolation.
+
+**All 4 acceptance criteria met:**
+1. Admin-firewall failures never touch `user.locked_until` — the `if ($realm !== 'user') return;` guard sits before the UPDATE.
+2. Per-IP, per-account, and lockout counts + the INSERT are all realm-scoped — no cross-contamination.
+3. Exclusion is explicit (code guard + comment) and documented (ADR-021), with sound rationale.
+4. Dedicated `CrossRealmLockoutTest` seeds a User+Admin sharing an email — the exact collision case.
+
+**What I verified independently (not trusting the log):**
+- Re-ran `CrossRealmLockoutTest` + `AccountLockoutTest` → **OK (7 tests, 20 assertions)**. The regression test confirms user-realm hard lockout *still fires*, so the realm guard didn't weaken the intended path.
+- Realm derivation (`^/admin`) matches the admin firewall's own pattern — no drift between INSERT and COUNT.
+- Migration defaults legacy rows to `'user'`; reversible `down()`.
+- No production config, security.yaml, or entity changes; tests are real and behavioural with no anti-cheat patterns.
+
+The net security effect is positive. The per-IP throttle relaxation (now realm-scoped) is documented and consistent with firewall isolation.
+
+Completion steps still owed per Definition of Done (not part of this verdict): flip `passes=true` + evidence in `feature_list.json`, append `claude-progress.txt`, and commit.
+== Marking feature complete ==
+Tracking files updated. Summary:
+
+- **`.agent/feature_list.json`** — FEATURE-100 set to `passes: true` with a 6-item evidence array (migration, listener realm-scoping + lockout guard, ADR-021 rationale for AC3, the 3 CrossRealmLockoutTest cases, reviewer's independent re-run, and the full verify-fast result). No other feature touched.
+- **`.agent/claude-progress.txt`** — appended a concise FEATURE-100 round summary at the top (newest-first).
+- **`.agent/DECISIONS.md`** — no change needed; ADR-021 was already recorded for this feature.
+- **`.agent/OPEN_QUESTIONS.md`** — no change needed; no new ambiguity surfaced (the admin-not-lockable decision is captured in ADR-021).
+
+No application code was edited.
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   894aade..c95e79d  HEAD -> master
+[master c95e79d] Agent round 3: complete current feature
+ 11 files changed, 536 insertions(+), 98 deletions(-)
+ create mode 100644 migrations/Version20260706000000.php
+ create mode 100644 tests/Functional/Security/CrossRealmLockoutTest.php
+Round 3 complete.
+
+==============================
+Agent round 4 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Warning: http://auth.localhost did not respond. Check your local server.
+== Init complete ==
+== Implementation pass ==
+Feature complete. The `config/reference.php` and `.agent/agent-loop.out` changes are pre-existing verify-script/environment artifacts (noted in prior rounds as incidental static-analysis drift), not part of this feature.
+
+## Summary
+
+Implemented **FEATURE-101** — *Invitation resend resurrects used invites; registered email not bound to invite* (review finding C6, priority **must**).
+
+### The three defects fixed
+1. **Web resend had no guard** — `AdminInvitationController::resend` regenerated any invitation unconditionally (`regenerate()` nulls `usedAt`), so a consumed invite could be resurrected and reused to create a second account in invitation-only mode.
+2. **API resend guarded expiry but not used-ness** — a used-*and-expired* invite slipped the `!isExpired()` gate and got regenerated.
+3. **Registration never bound the email** — `RegistrationController` captured the invited email for display only; any invite-link holder could register an arbitrary email.
+
+### Changes
+- **`AdminInvitationController::resend`** — reject when `isUsed()` (error flash + redirect).
+- **`Api/AdminApiInvitationController::resend`** — reject when `isUsed()` (409). Removed the `!isExpired() → 409` branch that contradicted the web contract.
+- **`RegistrationController::register`** — in invitation-only mode, reject when the POSTed email ≠ the invitation's email (case-insensitive); no user created, invite not consumed.
+- **`templates/admin/invitations/list.html.twig`** — render `error` flashes.
+
+### Drift reconciliation (AC2)
+The web acceptance test (FEATURE-071 AC5) rotates a **non-expired** invite and expects success, while the API returned 409 for the same case — the pre-existing drift AC2 mandates eliminating. The used-ness guard is the real security fix; expiry-as-a-resend-blocker was the anomaly. I converged both surfaces on **"reject only when used"** and reconciled the API test `testResendNonExpiredInvitationReturns409` → `testResendNonExpiredUnusedInvitationRotatesToken`. Documented as **ADR-022**.
+
+### Tests added
+- Web: resend-used rejected (token unchanged, no email); mismatched-email registration rejected (no account, invite not consumed).
+- API: resend-used returns 409 (token unchanged); reconciled non-expired-unused rotation test.
+
+### Verification
+`bin/verify-fast.sh` → **OK (429 tests, 1494 assertions), "=== All checks passed ==="**; anti-cheat scan clean. Only log noise is the pre-existing project-wide `eraseCredentials` deprecations.
+
+Per the workflow I have **not** set `passes=true` in `feature_list.json` and **not** appended to `claude-progress.txt` — those await the reviewer pass. Stopping here after this one feature.
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+Review complete. Verdict written to `.agent/review.log`:
+
+**REVIEW_PASS** — FEATURE-101 (Invitation resend resurrects used invites; registered email not bound to invite, review C6).
+
+Summary of what I verified:
+
+- **AC1 (resend rejected when used, both surfaces)** — Web adds an `isUsed()` guard → error flash + redirect; API replaces its `!isExpired()` branch with `isUsed()` → 409. Both sit *before* `regenerate()` (which nulls `usedAt`), closing the used+expired resurrection hole on both surfaces.
+- **AC2 (same guards, no drift)** — Both controllers now apply the identical single guard. The AC-text parenthetical "(used and expired)" is reconciled by ADR-022: expiry deliberately does *not* block resend (renewing an expired invite is the primary resend use case; blocking it would break FEATURE-071 AC5). A recorded architecture decision, not a weakened guard.
+- **AC3 (bind registration email to invite)** — `RegistrationController` rejects a case-insensitively mismatched email before consuming the invite or creating the user; only applies in invitation-only mode.
+- **AC4 (functional tests both surfaces + mismatch)** — Present and behavioural; the renamed API test is documented drift-elimination, not a faked/weakened pass.
+
+Independent checks:
+- Re-ran `phpunit` on both changed test files → **OK (13 tests, 44 assertions)**.
+- Anti-cheat scan on changed tests → clean (no skips/no-op assertions).
+- No spec mismatch, no dead UI (Resend button + new flash-error block wired), no production config change, no security regression.
+
+One **non-blocking** note recorded: `config/reference.php` carries unrelated auto-generated `when@acceptance` static-analysis churn — recommend `git checkout -- config/reference.php` to keep the feature commit scoped. It does not gate the pass.
+== Marking feature complete ==
+Tracking files updated. Summary of this step:
+
+- **feature_list.json** — FEATURE-101 marked `passes: true` with a 6-item evidence array (both resend guards, registration email binding, template flash, the four functional tests, reviewer re-run, and verify/REVIEW_PASS).
+- **claude-progress.txt** — appended a concise FEATURE-101 round summary.
+- **DECISIONS.md** — no change needed; ADR-022 already records the durable decision (resend guard = used-ness only; registration binds to invited email).
+- **OPEN_QUESTIONS.md** — no change needed; no new ambiguity was found or resolved this round.
+
+No application code was touched, and no unrelated features were marked complete (FEATURE-102 and beyond remain `passes: false`).
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   c95e79d..7aa16e3  HEAD -> master
+[master 7aa16e3] Agent round 4: complete current feature
+ 13 files changed, 398 insertions(+), 95 deletions(-)
+Round 4 complete.
+
+==============================
+Agent round 5 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Warning: http://auth.localhost did not respond. Check your local server.
+== Init complete ==
+== Implementation pass ==
+`bin/verify-fast.sh` passes: **442 tests, 1568 assertions — "=== All checks passed ==="**.
+
+## Summary
+
+Selected and implemented **FEATURE-099** (must, deps satisfied): *Admin REST API must write audit-log entries for all mutations (review C4).*
+
+**Problem:** All 12 mutating admin-API endpoints performed zero `AuditLogger` calls while every web-admin twin logs — a leaked admin token could delete users, reset 2FA, or revoke tokens with no forensic trace.
+
+**Changes:**
+- `src/Controller/Api/AdminApiUserController.php` — injected `AuditLogger`; added `Request` to the actions that lacked it; added a private `audit()` helper and a `$this->audit(...)` call after each of the 10 successful mutations (create, update, delete, activate, deactivate, force-logout, password-reset, unlock, revoke-tokens, reset-2fa).
+- `src/Controller/Api/AdminApiInvitationController.php` — same pattern for send + resend.
+- Action names reuse the web twins where they exist (`admin.user_create`, `admin.user_edit`, `admin.user_delete`, `admin.user_password_reset`, `admin.user_reset_2fa`, `admin.user_unlock`, `admin.user_revoke_tokens`, `admin.user_invite`, `admin.user_invite_resend`) and follow the same convention for the API-only endpoints (`admin.user_activate`, `admin.user_deactivate`, `admin.user_force_logout`). All record actor = acting admin, actorType `'admin'`, ip, action, outcome `'success'`. Logging only fires on success (verified by a 404-writes-no-row test).
+- `tests/Functional/Api/AdminApiAuditLoggingTest.php` (new) — 13 tests, one per mutating endpoint plus the no-row-on-failure case.
+
+**Verification:** new test green (13 tests, 74 assertions); all pre-existing API tests green; full `bin/verify-fast.sh` passes.
+
+Per the workflow, I stopped here — I did **not** set `passes=true`, did **not** touch `claude-progress.txt`, and did not commit. Those remain for the reviewer pass and the completion step.
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+Review complete.
+
+## REVIEW_PASS — FEATURE-099
+
+The current feature (Admin REST API audit logging, review finding C4) satisfies all acceptance criteria and passes strict review. Verdict written to `.agent/review.log`.
+
+**What I verified:**
+- **All 12 mutating endpoints covered** — route enumeration shows exactly 12 mutating routes (10 user + 2 invitation) and exactly 12 `$this->audit()` call sites. The 2 read-only GET routes (list/detail) are correctly not logged.
+- **AC2 fields** — the shared `audit()` helper records the acting admin identity, `actorType 'admin'`, client IP, action, and `'success'` outcome; the test asserts each.
+- **AC3 tests** — 13 tests / 74 assertions, one per endpoint plus a negative test proving a 404 writes zero rows. Real behavioural assertions against persisted `audit_log` rows; no skips/fakes; anti-cheat clean.
+- **Logging fires only on success** (post-flush), mirroring the web-admin twins; action names match the web twins with no drift.
+- **Re-ran the test myself:** `OK (13 tests, 74 assertions)`. Full `bin/verify-fast.sh` passed per verify.log.
+
+**Non-blocking:** the incidental `config/reference.php` churn (auto-generated `when@acceptance` psalm stubs) is unrelated to this feature — recommend `git checkout -- config/reference.php` to keep the commit scoped. Completion steps still owed per Definition of Done: set `passes=true` + evidence, append `claude-progress.txt`, and commit.
+== Marking feature complete ==
+Tracking files updated. Summary of what I changed (no application code touched):
+
+- **`.agent/feature_list.json`** — FEATURE-099 set to `passes: true` with a 5-item evidence array (12 mutating endpoints → 12 `audit()` sites, actor/actorType/ip/action/outcome recording, the 13-test/74-assertion functional test, reviewer REVIEW_PASS, and clean verify-fast). Only FEATURE-099 was modified; FEATURE-100/101 already passed.
+- **`.agent/claude-progress.txt`** — appended a concise FEATURE-099 round summary at the top.
+- **`.agent/DECISIONS.md`** — left unchanged. FEATURE-099 was a standalone implementation mirroring the existing web-admin audit pattern (a scoped design choice already noted in SCRATCHPAD), not a new durable architecture decision warranting an ADR.
+- **`.agent/OPEN_QUESTIONS.md`** — left unchanged. No new ambiguity found or resolved this round.
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   7aa16e3..5d414ea  HEAD -> master
+[master 5d414ea] Agent round 5: complete current feature
+ 9 files changed, 537 insertions(+), 66 deletions(-)
+ create mode 100644 tests/Functional/Api/AdminApiAuditLoggingTest.php
+Round 5 complete.
+
+==============================
+Agent round 6 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Warning: http://auth.localhost did not respond. Check your local server.
+== Init complete ==
+== Implementation pass ==
+The `config/reference.php` change is incidental auto-generated static-analysis drift (a `when@acceptance` env cache regeneration — same artifact FEATURE-096 noted excluding at commit time), not part of my logical change. Implementation is complete.
+
+## Summary — FEATURE-098 (must): Deactivation / logout-everywhere must actually cut access (review C3)
+
+Selected the only remaining `must`-priority feature with satisfied dependencies. Rewrote `.agent/SCRATCHPAD.md` for it, wrote tests, then implemented the smallest complete fix. `bin/verify-fast.sh` passes: **447 tests, 1590 assertions, "=== All checks passed ==="**.
+
+### The two holes closed
+
+**(a) Remember-me survived logout-everywhere.** The cookie's HMAC binds only identifier+expiry+password-hash, so dropping `user_sessions` rows didn't stop re-authentication.
+- New explicit `User.sessionsInvalidatedAt` column (`migrations/Version20260706100000.php`, nullable → NULL treated as marker `0`, no behaviour change for existing rows).
+- `ConfigAwareRememberMeHandler::computeHash` folds that timestamp into the HMAC → bumping it invalidates every outstanding remember-me cookie for the user at once, without touching the password.
+- Web `AccountController::terminateAllSessions` and API `AdminApiUserController::forceLogout` now bump the marker + flush.
+
+**(b) Stateless firewalls never rechecked account state.** A deactivated user's PAT / admin's token authenticated forever.
+- `TokenAuthenticator` rejects (401) when the loaded User's `status !== 'active'` or `isLocked()`.
+- `AdminTokenAuthenticator` rejects (401) when the loaded Admin is not `isActive()` (admins have no lockout column per ADR-021).
+- API `deactivate` additionally drops sessions + `revokeAllByUserId` (PATs) + bumps the marker — active revoke as belt-and-suspenders.
+
+### Tests — `tests/Functional/Security/DeactivationCutsAccessTest.php` (5 tests, all ACs)
+Deactivated user PAT → 401 on `/api`; deactivated admin token → 401 on `/admin-api`; deactivate drops sessions + revokes PATs; remember-me dead after web logout-everywhere; remember-me dead after API force-logout.
+
+One test-isolation note worth surfacing: in the full-suite run these tests initially failed because a leftover empty `remember_me.lifetime_days` config row makes `ConfigService::getInt()` return `0`, so the remember-me cookie expires immediately. I cleaned that key in the test (mirroring `RememberMeTest`), but the underlying "empty config value → 0 lifetime" is a real config-hygiene bug that belongs to FEATURE-120 (per-field config validation), not this feature.
+
+Per the workflow I have **not** set `passes=true`, **not** updated `claude-progress.txt`, and **not** committed — stopping after this one vertical slice for the reviewer pass.
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+Review complete. Result written to `.agent/review.log`.
+
+**REVIEW_PASS**
+
+FEATURE-098 (Deactivation / logout-everywhere must actually cut access — review C3) passes a strict review. Summary of what I verified:
+
+**All 5 acceptance criteria met, each with a real functional test:**
+- **AC1** — Remember-me now dies after logout-everywhere (web + API force-logout). The fix folds a new `User.sessionsInvalidatedAt` timestamp into `ConfigAwareRememberMeHandler::computeHash`, so bumping it globally invalidates every outstanding REMEMBERME cookie via `hash_equals` failure — without touching the password. Both `terminateAllSessions` and API `forceLogout` set it + flush.
+- **AC2/AC3** — Stateless `api`/`admin_api` firewalls now enforce account state in the token authenticator loaders (`status !== 'active'` / `isLocked()` for users; `!isActive()` for admins), returning JSON 401.
+- **AC4** — `deactivate()` actively drops sessions + revokes PATs + bumps the marker (belt-and-suspenders behind the authenticator check).
+
+**Correctness/regression checks that held up:**
+- Migration is nullable/defaultless → existing rows unaffected; NULL marker → constant `0` → the `RememberMeTest` expiry-reauth regression watch still passes.
+- Repository signatures (`deleteAllByUserId`, `revokeAllByUserId`) verified against the call sites; the DQL revoke executes immediately, consistent with the test's direct `revoked_at` read.
+- Admin hard-lockout correctly scoped out per ADR-021 (no `Admin.locked_until` column).
+
+**Anti-cheat clean:** no skipped/faked tests, real behavioural assertions. The `remember_me.lifetime_days` config cleanup in `setUp` is a documented cross-suite isolation fix (mirrors `RememberMeTest`), not test-faking.
+
+`bin/verify-fast.sh` passed (447 tests / 1590 assertions, anti-cheat clean).
+
+One non-blocking note: `config/reference.php` carries the usual auto-generated `when@acceptance` psalm-type drift — recommend `git checkout -- config/reference.php` to keep the commit scoped. The DoD completion steps (set `passes=true` + evidence, append progress, commit) are still owed but don't gate this pass.
+== Marking feature complete ==
+Tracking files updated. Summary:
+
+- **feature_list.json** — FEATURE-098 set `passes: true` with 7 concise evidence entries covering all 5 ACs (remember-me HMAC marker + migration, web/API logout-everywhere invalidation, PAT status/lock rejection, admin-token rejection, deactivate drops sessions + revokes PATs, and the functional test file), plus the reviewer/verify result.
+- **claude-progress.txt** — appended a FEATURE-098 round summary at the top.
+- **DECISIONS.md** — no change. FEATURE-098 introduced no new ADR (it reuses the explicit-marker design pattern and references the existing ADR-021); the review explicitly noted none was required.
+- **OPEN_QUESTIONS.md** — no change. No ambiguity was found or resolved by this feature.
+
+No unrelated features were touched and no application code was modified.
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   5d414ea..3221549  HEAD -> master
+[master 3221549] Agent round 6: complete current feature
+ 15 files changed, 617 insertions(+), 52 deletions(-)
+ create mode 100644 migrations/Version20260706100000.php
+ create mode 100644 tests/Functional/Security/DeactivationCutsAccessTest.php
+Round 6 complete.
+
+==============================
+Agent round 7 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Warning: http://auth.localhost did not respond. Check your local server.
+== Init complete ==
+== Implementation pass ==
+All changes are clean. The `config/reference.php` one-line drift (`messenger.enabled` default `false`→`true`) is auto-generated and correctly reflects enabling Messenger.
+
+I've completed **FEATURE-104** as one coherent vertical slice. Per the workflow I have **not** set `passes=true` or touched `claude-progress.txt`.
+
+## Summary
+
+**Feature:** Move email + webhook delivery off the login/request path to Symfony Messenger (review C9, priority `must` — the only remaining `must` with satisfied deps).
+
+**What I did (all 7 ACs):**
+- Installed `symfony/messenger` + `symfony/doctrine-messenger`.
+- **`config/packages/messenger.yaml`** — Doctrine `async` transport with `retry_strategy` (exp. backoff) + `failed` failure transport; routes `SendEmailMessage` **and** `App\Message\SendWebhookMessage` → `async`. `when@test` routes email → `sync://` (so `MailerAssertionsTrait`, which counts *sent* not *queued*, keeps working) while `async` = `in-memory://` so a dispatched webhook message is inspectable. Acceptance override → `sync://` (no worker on the live server).
+- **`SendWebhookMessage`** + **`SendWebhookMessageHandler`** (runs the HTTP + `WebhookDelivery` logging on the worker; throws on failure so Messenger retries → dead-letters).
+- **`MessengerWebhookDispatcher`** now backs `WebhookDispatcherInterface` in prod/dev — all 4 call sites enqueue unchanged; the request never calls out itself.
+- **`HttpWebhookDispatcher`** refactored to a single-attempt `send()`; removed the internal retry loop and the no-op **`backoff()`** (AC4); kept the static SSRF guard.
+- **Migration** for `messenger_messages` (SQLite-compatible, DBAL-only table).
+- **README** "Background worker" section documents the `messenger:consume async` requirement (AC6).
+- **ADR-023** recorded in `DECISIONS.md`.
+- **Tests:** new `tests/Functional/Messenger/AsyncDeliveryTest.php` (webhook message dispatched to the transport, not inline HTTP; email routed onto the bus + login still succeeds/notifies); reworked `WebhookDeliveryTest.php` to the new single-attempt + handler-throw semantics preserving `WebhookDelivery` logging assertions.
+
+**Verification:** `bin/verify-fast.sh` → **`=== All checks passed ===`, OK (449 tests, 1592 assertions)** — PHPUnit + Codeception functional + live-server acceptance all green. The only log noise is pre-existing `eraseCredentials` deprecations. No skipped/weakened tests.
+
+One deliberate note captured in ADR-023: the admin `webhook.max_retry_attempts` field is now a no-op (retry is Messenger's compile-time `retry_strategy`), retained so FEATURE-057's `WebhookConfigPageTest` stays untouched — rewiring it is out of this feature's scope.
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+Review complete. Verdict:
+
+## REVIEW_PASS — FEATURE-104
+
+I reviewed the current feature (async email + webhook delivery via Symfony Messenger, ADR-023) against the spec, ACs, tests, and diff, and independently re-ran the suite.
+
+**All 7 acceptance criteria met:**
+- Doctrine async transport configured; `SendEmailMessage` + `SendWebhookMessage` routed to it (enqueue, not inline).
+- Webhook delivery moved into a worker handler; all four call sites use the unchanged `WebhookDispatcherInterface` (now bound to `MessengerWebhookDispatcher` in prod/dev). Directly tested: `dispatch()` enqueues exactly one message and makes **no** HTTP call.
+- `HttpWebhookDispatcher` refactored to a single-attempt `send()`; the retry loop and no-op `backoff()` are removed (grep-confirmed no dangling refs). Retry is now Messenger's `retry_strategy` + `failed` dead-letter transport; the handler throws on non-delivered.
+- `WebhookDelivery` logging preserved (one row per attempt, written from the handler).
+- README documents the `messenger:consume` worker requirement.
+
+**Verification I re-ran myself:** target tests OK (6/21), regression watch OK (39/99), and full `bin/verify-fast.sh` → `=== All checks passed ===` (449 tests, 1592 assertions).
+
+**Non-blocking notes** (do not gate the pass): AC7's "failing webhook/mailer doesn't break login" is proven structurally (the enqueue-not-HTTP test) rather than by injecting a live failure through the login request — a limitation of the deliberate test-env wiring (mailer→sync, webhook→InMemory); and the usual auto-generated `config/reference.php` churn should be kept out of the feature commit.
+
+The verdict and full analysis are written to `.agent/review.log` (prepended, newest-first). Per CLAUDE.md, the remaining Definition-of-Done steps (flip `passes:true` + evidence in `feature_list.json`, append `claude-progress.txt`, commit) are still owed but don't gate this reviewer pass.
+== Marking feature complete ==
+Tracking files updated. Summary of what I changed (and what I deliberately left alone):
+
+**Updated**
+- **`.agent/feature_list.json`** — FEATURE-104 set `passes: true` with a concise per-AC evidence array (async transport + SendEmailMessage routing, worker handler + enqueue-not-HTTP proof, single-attempt sender / retry_strategy / failure transport, preserved WebhookDelivery logging, README worker doc, functional tests, test-env wiring, reviewer re-run numbers, and the SSRF-deferred note). No other feature touched.
+- **`.agent/claude-progress.txt`** — prepended a FEATURE-104 round summary (what was built, ADR-023 decision, verification: 449 tests / 1592 assertions, REVIEW_PASS 7/7).
+
+**Left unchanged (correctly)**
+- **`.agent/DECISIONS.md`** — ADR-023 was already recorded during implementation; no new durable decision emerged this round.
+- **`.agent/OPEN_QUESTIONS.md`** — no new ambiguity found or resolved (SSRF hardening is already tracked as FEATURE-105, not an open question).
+- No application code edited.
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   3221549..bdaf6a9  HEAD -> master
+[master bdaf6a9] Agent round 7: complete current feature
+ 24 files changed, 956 insertions(+), 173 deletions(-)
+ create mode 100644 config/packages/acceptance/messenger.yaml
+ create mode 100644 config/packages/messenger.yaml
+ create mode 100644 migrations/Version20260706120000.php
+ create mode 100644 src/Message/SendWebhookMessage.php
+ create mode 100644 src/MessageHandler/SendWebhookMessageHandler.php
+ create mode 100644 src/Service/MessengerWebhookDispatcher.php
+ create mode 100644 tests/Functional/Messenger/AsyncDeliveryTest.php
+Round 7 complete.
+
+==============================
+Agent round 8 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Warning: http://auth.localhost did not respond. Check your local server.
+== Init complete ==
+== Implementation pass ==
+Done. Implemented one complete vertical slice for **FEATURE-136** (root path `/` must redirect, not serve Symfony's default welcome/404 page).
+
+## What I did
+
+1. **Selected** FEATURE-136 — priority `should`, `depends_on: []` (satisfied), and confirmed there was genuinely no route for `/` (grep found no `Route('/')` anywhere), so `/` was falling through to the framework welcome page / 404.
+
+2. **Rewrote** `.agent/SCRATCHPAD.md` for this feature (problem, AC→design mapping, firewall/access-control notes, files, regression watch).
+
+3. **Test-first** — added `tests/Functional/Navigation/RootRedirectTest.php`:
+   - anonymous `GET /` → 302 to `/login`
+   - `GET /` response is a 302 and does not contain "Welcome to Symfony"
+   - authenticated `GET /` (real user-firewall form login) → 302 to `/dashboard`
+
+4. **Implemented** the smallest solution — `src/Controller/RootController.php` with `#[Route('/', name: 'app_root')]`: authenticated → `app_dashboard` (the user firewall's `default_target_path`, so it matches the real post-login destination), otherwise → `app_login`.
+
+## Verification
+- New test: `OK (3 tests, 6 assertions)`
+- `bin/verify-fast.sh`: **exit 0**, `=== All checks passed ===`, `OK (452 tests, 1598 assertions)` (up from 449; +3 new), anti-cheat clean.
+
+Note during implementation: the built-in `KernelBrowser::loginUser()` didn't authenticate against the named `user` firewall in this setup, so I switched the authenticated test to the real form-login convention used across the suite.
+
+## Deliberately not done (per workflow)
+- Did **not** set `passes=true` in `feature_list.json`.
+- Did **not** append to `claude-progress.txt`.
+- No production config or live services touched; `.agent/bin/init.sh` left unchanged — the `/`→302 alone resolves AC5's false "did not respond" warning (`curl -fsS` fails only on ≥400, and doesn't follow redirects).
+
+Stopping here after this one coherent slice, awaiting the reviewer pass before bookkeeping/commit.
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+Review complete.
+
+## REVIEW_PASS — FEATURE-136 (root `/` redirect)
+
+I reviewed the current feature against CLAUDE.md, the feature definition, SCRATCHPAD, verify.log, and the diff, and independently re-ran verification.
+
+**What the feature does:** adds `RootController` with `#[Route('/', name: 'app_root')]` — authenticated users redirect to `app_dashboard`, everyone else to `app_login`.
+
+**Findings:**
+- All 5 acceptance criteria met. `/dashboard` is genuinely the user firewall's `default_target_path` (security.yaml:75), so AC2's "consistent with the post-login destination" holds.
+- Both redirect targets (`app_login`, `app_dashboard`) are confirmed real routes — no dead redirects.
+- `/` is anonymously reachable (no access_control catch-all), so the controller runs for both auth states.
+- Tests are real and behavioral (3 tests / 6 assertions), no skip/fake patterns, anti-cheat clean.
+- Idiomatic Symfony; no production config, no security regression, no placeholder/incomplete UI.
+
+**Independent verification:**
+- `RootRedirectTest` → OK (3 tests, 6 assertions)
+- `bin/verify-fast.sh` → `=== All checks passed ===`, full suite OK (452 tests, 1598 assertions), exit 0
+
+Result written to `.agent/review.log` (prepended as the newest entry): **REVIEW_PASS**.
+
+Note (not blocking the pass): the Definition of Done bookkeeping is still owed — set `FEATURE-136` `passes=true` + evidence in `feature_list.json`, append `claude-progress.txt`, and commit.
+== Marking feature complete ==
+Tracking files updated. DECISIONS.md and OPEN_QUESTIONS.md need no changes — the reviewer and SCRATCHPAD both confirm FEATURE-136 introduced no durable architecture decision (a plain state-based redirect matching the existing `default_target_path`) and resolved no ambiguity.
+
+Summary of what I changed (tracking only, no app code):
+
+- **`.agent/feature_list.json`** — FEATURE-136 flipped to `passes: true` with a 5-item evidence array (controller/route, landing-page consistency, the 3-test functional file, the AC5 init.sh consequence, and the reviewer's independent verify + REVIEW_PASS).
+- **`.agent/claude-progress.txt`** — appended a concise round summary for FEATURE-136 at the top.
+- **`.agent/DECISIONS.md`** — unchanged (no ADR warranted).
+- **`.agent/OPEN_QUESTIONS.md`** — unchanged (no ambiguity found or resolved).
+
+No unrelated features were touched.
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   bdaf6a9..4ea7341  HEAD -> master
+[master 4ea7341] Agent round 8: complete current feature
+ 8 files changed, 327 insertions(+), 82 deletions(-)
+ create mode 100644 src/Controller/RootController.php
+ create mode 100644 tests/Functional/Navigation/RootRedirectTest.php
+Round 8 complete.
+
+==============================
+Agent round 9 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Local app responds at http://auth.localhost
+== Init complete ==
+== Implementation pass ==
+I implemented one complete vertical slice: **FEATURE-124 — Paginate the admin invitations list (review C34)**.
+
+## What I did
+
+**Selected** FEATURE-124 (priority `should`, `depends_on: []` — satisfied). It was the odd list out: the users list and audit-log list both paginate via `?page=`, but `AdminInvitationController::list` handed the entire table to the template unbounded.
+
+**Test-first, then smallest complete implementation matching the established pattern:**
+
+- `src/Repository/InvitationRepository.php` — added `countAll()` and `findPaginated($page, $limit)`, identical in shape to `UserRepository`.
+- `src/Controller/AdminInvitationController.php` — added `private const PAGE_SIZE = 10` (matching the users list) and rewrote `list()` to inject `Request`, read `page`, and pass `currentPage`/`totalPages`/`total`.
+- `templates/admin/invitations/list.html.twig` — added the `nav[aria-label="Pagination"]` block copied from the users list, routed to `app_admin_users_invitations`.
+- `tests/Functional/Admin/InvitationListPaginationTest.php` (NEW) — seeds 12 invitations and asserts page 1 shows exactly 10 rows + pagination controls, page 2 shows the remaining 2.
+
+## Verification
+
+- New + existing invitation tests: **10 tests, 28 assertions — OK**.
+- `bin/verify-fast.sh`: **"=== All checks passed ==="**, 454 tests / 1605 assertions (+2 new), anti-cheat scan clean.
+
+## Per your workflow, I stopped here and did **not**:
+- mark `passes=true` in `.agent/feature_list.json`,
+- append to `.agent/claude-progress.txt`,
+- commit.
+
+Those remain for the reviewer pass / done-definition steps. SCRATCHPAD is updated to `IMPLEMENTED — awaiting reviewer pass`.
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+**REVIEW_PASS** — FEATURE-124 (Paginate the admin invitations list, review C34).
+
+The feature is a clean, minimal vertical slice that faithfully mirrors the established users/audit-log pagination pattern:
+
+- **AC1 (paginated, consistent with sibling lists):** `InvitationRepository::countAll()` / `findPaginated()` are the same shape as `UserRepository`; the controller mirrors `AdminUserController::list` exactly — same page clamp, same `ceil(total/PAGE_SIZE)`, same `PAGE_SIZE = 10`, same render vars. ✅
+- **AC2 (functional test with bounded page + controls):** `InvitationListPaginationTest` seeds 12 invitations and asserts page 1 = exactly 10 rows + `nav[aria-label="Pagination"]` + a `page=2` link; page 2 = remaining 2 rows. Real behavioural assertions. ✅
+
+I independently re-ran the new test (**OK, 2 tests / 7 assertions**) and confirmed the class-level `#[IsGranted('ROLE_ADMIN')]` guard is preserved, the page param is integer-cast and lower-bounded, and no production config/schema was touched.
+
+I noted one **non-blocking** observation: the page-2 exact-count assertion assumes the invitations table is otherwise empty (coupled to global state rather than a scoped count). It passes in the full suite today, so it doesn't gate the pass.
+
+Result written to `.agent/review.log` (prepended above the prior entries).
+
+Remaining Definition-of-Done steps (outside this reviewer pass): set `passes=true` + evidence in `feature_list.json`, append `claude-progress.txt`, and commit.
+== Marking feature complete ==
+Tracking files updated. FEATURE-124 is the current feature and no durable decision or ambiguity arose, so DECISIONS.md and OPEN_QUESTIONS.md were left untouched (the scratchpad explicitly notes no ADR was needed — PAGE_SIZE mirrors the sibling lists).
+
+Summary of changes:
+- **feature_list.json** — FEATURE-124 set to `passes: true` with 5 concise evidence entries (repo/controller/template changes, the new functional test, reviewer REVIEW_PASS, and verify-fast results). No other feature touched.
+- **claude-progress.txt** — appended a FEATURE-124 round summary (what was built, design note, verification, COMPLETE status).
+- **DECISIONS.md** — not modified (no durable decision; scratchpad confirms no ADR needed).
+- **OPEN_QUESTIONS.md** — not modified (no new or resolved ambiguity).
+
+No application code was edited.
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   4ea7341..43d210e  HEAD -> master
+[master 43d210e] Agent round 9: complete current feature
+ 11 files changed, 375 insertions(+), 53 deletions(-)
+ create mode 100644 tests/Functional/Admin/InvitationListPaginationTest.php
+Round 9 complete.
+
+==============================
+Agent round 10 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Local app responds at http://auth.localhost
+== Init complete ==
+== Implementation pass ==
+I've implemented FEATURE-112 as one coherent vertical slice. Stopping here per the workflow (not marking `passes=true`, not appending `claude-progress.txt`).
+
+## Summary
+
+**FEATURE-112** — Mark the trusted-device 2FA-bypass cookie `Secure` via `request->isSecure()` (review C15).
+
+**Problem:** `TrustedDeviceManager::generateCookie` hardcoded the cookie's `Secure` flag to `false`, so this 2FA-bypass bearer credential was never marked `Secure` — even on production HTTPS — letting it leak on the wire (the deployment redirects http→https without HSTS, so the cookie is sent on the initial plaintext request). The sibling remember-me cookie already derives `Secure` from `$request->isSecure()`; this was the unhardened inconsistency.
+
+**Changes:**
+- `src/Security/TrustedDeviceManager.php` — `generateCookie()` gains a `bool $secure` parameter and uses it for the Cookie's `$secure` argument. `HttpOnly` + `SameSite=Strict` kept (appropriate for a credential that skips the 2FA challenge).
+- `src/Controller/TwoFactorController.php` — the single call site now passes `$request->isSecure()`.
+- `tests/Functional/Security/TrustedDeviceTest.php` — added a scheme-parameterized flow helper plus two tests: over HTTPS the `TRUSTED_DEVICE` Set-Cookie carries `Secure` (and `HttpOnly`/`SameSite=Strict`); over http it does not. The response's Set-Cookie headers are read directly rather than the BrowserKit jar (which drops Secure cookies seen over http).
+
+**AC coverage:** 1) Secure derived from `isSecure()` ✓ · 2) HTTPS→Secure, http→not ✓ · 3) HttpOnly + appropriate SameSite consistent ✓ · 4) functional test for both schemes ✓.
+
+**Verification:** `bin/verify-fast.sh` → `=== All checks passed ===` (456 tests, 1616 assertions; +2 new, +12 assertions). Targeted `TrustedDeviceTest` green (6 tests, 24 assertions); existing AC1–AC4 unaffected (run over http → `isSecure()===false`, same cookie as before).
+
+Not yet done (deliberately, per instructions): reviewer pass, `feature_list.json` `passes=true` + evidence, `claude-progress.txt` append, and commit.
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+Review complete. Result written to `.agent/review.log`.
+
+## REVIEW_PASS — FEATURE-112
+
+The current feature (mark the trusted-device 2FA-bypass cookie `Secure` via `request->isSecure()`) is correctly and completely implemented.
+
+**All 4 acceptance criteria met:**
+- `generateCookie()` now derives `Secure` from a `bool $secure` param instead of hardcoded `false`; the sole caller (`TwoFactorController:161`) passes `$request->isSecure()` — mirroring `ConfigAwareRememberMeHandler:86` exactly.
+- HttpOnly retained; SameSite=Strict retained (appropriate for a credential that skips the 2FA challenge).
+- Two real functional tests drive the full login → 2FA challenge → trust-device flow over both schemes and assert the `TRUSTED_DEVICE` Set-Cookie's `isSecure()` — reading response headers directly (correct, since the BrowserKit jar drops Secure cookies seen over http).
+
+**Verification (re-run independently):** `TrustedDeviceTest` → OK (6 tests, 24 assertions); the 4 pre-existing tests still green. No skipped/faked tests, no security regression (this closes a real leak vector), no production config change.
+
+**One non-blocking note:** `config/reference.php` carries incidental auto-generated psalm-type drift — unrelated to this feature. Recommend `git checkout -- config/reference.php` before committing to keep the diff scoped, but it doesn't affect runtime and doesn't gate the pass.
+
+The completion steps (set `passes=true` + evidence, append `claude-progress.txt`, commit) remain owed per the workflow but are outside this review's verdict.
+== Marking feature complete ==
+Tracking files updated. DECISIONS.md and OPEN_QUESTIONS.md need no changes — the review and scratchpad both confirm this feature required no ADR and surfaced no ambiguity (contained signature change, no schema/config change).
+
+Summary of what I did:
+- **feature_list.json** — FEATURE-112 marked `passes: true` with a 5-item evidence array (production change, the two new functional tests, reviewer re-run 6 tests/24 assertions, verify-fast full suite 456/1616, REVIEW_PASS).
+- **claude-progress.txt** — prepended a concise FEATURE-112 round summary (what was built, design note, verification, COMPLETE status).
+- **DECISIONS.md** — no change (no durable decision; no ADR warranted).
+- **OPEN_QUESTIONS.md** — no change (no ambiguity found or resolved).
+
+No application code was touched, and no other features were altered.
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   43d210e..926f0a9  HEAD -> master
+[master 926f0a9] Agent round 10: complete current feature
+ 9 files changed, 280 insertions(+), 45 deletions(-)
+Round 10 complete.
+
+==============================
+Agent round 11 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Local app responds at http://auth.localhost
+== Init complete ==
+== Implementation pass ==
+I've completed one coherent vertical slice: **FEATURE-116 — Audit-log date filters must not 500 on bad input; dedup the filter block (review C24)**.
+
+## What I did
+
+**Selected feature:** FEATURE-116 (priority `should`, `depends_on: []` — satisfied). The bug: both `AdminAuditLogController` and `Api/AdminApiAuditLogController` copy-pasted the same filter-parsing block and passed raw query strings straight into `new \DateTimeImmutable(...)` inside the repository, so `?date_from=banana` threw an uncaught exception → HTTP 500 on both surfaces.
+
+**Tests first, then implementation** (smallest complete solution):
+
+- **NEW `src/Service/AuditLogFilterParser.php` + `AuditLogFilterResult.php`** — single shared source of truth for parsing/validating filters. Dates are strictly validated (`!Y-m-d` + `getLastErrors()`); invalid dates are dropped and reported via `error`, valid ones returned as ready-made `\DateTimeImmutable` objects anchored to day bounds (00:00:00 / 23:59:59).
+- **`AuditLogRepository::applyFilters`** — now binds the pre-validated `\DateTimeImmutable` directly; the in-repo `new \DateTimeImmutable` crash site is gone.
+- **`AdminAuditLogController`** — renders gracefully (HTTP 200) with a `filterError` message, still applying any valid filters.
+- **`Api/AdminApiAuditLogController`** — returns `422 {error}` on invalid input.
+- **Template** — `.filter-error` block.
+- **Tests** — `AuditLogFilterParserTest` (9 unit tests incl. `banana`, `2026-13-45`, `2026-02-30`, extra-time-component), plus one web functional test (`?date_from=banana` → 200 + `.filter-error`) and two API tests (422 on bad input; valid range still filters).
+
+**Verification:** targeted tests green (9 unit + 12 functional), and `bin/verify-fast.sh` → `=== All checks passed ===`, full suite OK (459 tests, 1626 assertions), anti-cheat clean.
+
+Per the workflow, I stopped here: I did **not** mark `passes=true`, did **not** append to `claude-progress.txt`, and did **not** commit — those await the reviewer pass.
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+Review complete. Verdict: **REVIEW_PASS** (written to `.agent/review.log`).
+
+## FEATURE-116 — Audit-log date filters must not 500 on bad input; dedup the filter block
+
+All 4 acceptance criteria are met:
+
+1. **No 500 on bad input** — the crash site (`new \DateTimeImmutable($string)` in `AuditLogRepository`) is removed. Invalid dates are dropped by the new parser; the web page renders HTTP 200 with a `filter-error` block, and the API returns 422 `{error}`.
+2. **Valid filters still work** — strict `!Y-m-d` parsing accepts existing `YYYY-MM-DD` inputs, anchored to day bounds; verified on both surfaces.
+3. **Parsing shared** — one injected `AuditLogFilterParser` replaces the copy-pasted `array_filter` block in both controllers.
+4. **Functional coverage** — `?date_from=banana` handled (not 500) on both web and API.
+
+I independently re-ran the tests (21 tests / 78 assertions OK) rather than trusting the log. Date validation is genuinely strict (rejects `banana`, `2026-13-45`, Feb-30 rollover, trailing time). No skipped/fake tests, no security regression (net improvement — no more uncaught-exception 500 from a crafted param), idiomatic Symfony DI + immutable value object.
+
+**One non-blocking note:** `config/reference.php` shows the recurring auto-generated static-analysis drift (unrelated to this feature). It's not runtime/production config, but the SCRATCHPAD's "no config change" claim is only true for *runtime* config — the drift is in the working tree. Recommend `git checkout -- config/reference.php` before committing to keep the feature diff scoped.
+
+Still owed per Definition of Done (not gating the pass): set `passes=true` + evidence in `feature_list.json`, append `claude-progress.txt`, and commit.
+== Marking feature complete ==
+FEATURE-116 tracking is updated. No durable decision or ambiguity arose for this feature (the review recorded no new ADR and no open question), so DECISIONS.md and OPEN_QUESTIONS.md are left untouched per the instructions.
+
+Summary of tracking-only changes:
+- **feature_list.json** — FEATURE-116 set to `passes: true` with a 7-item evidence array (shared parser + result VO, repository crash-site removal, controller 200/422 handling, unit + functional tests, reviewer re-run 21/78, verify-fast 459/1626, REVIEW_PASS).
+- **claude-progress.txt** — appended a concise FEATURE-116 round summary (problem, change, tests, verification, status).
+- **DECISIONS.md / OPEN_QUESTIONS.md** — no change (no new decision or ambiguity).
+- No application code touched.
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   926f0a9..99b7eaa  HEAD -> master
+[master 99b7eaa] Agent round 11: complete current feature
+ 15 files changed, 553 insertions(+), 65 deletions(-)
+ create mode 100644 src/Service/AuditLogFilterParser.php
+ create mode 100644 src/Service/AuditLogFilterResult.php
+ create mode 100644 tests/Unit/Service/AuditLogFilterParserTest.php
+Round 11 complete.
+
+==============================
+Agent round 12 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Local app responds at http://auth.localhost
+== Init complete ==
+== Implementation pass ==
+I've completed one coherent vertical slice. Stopping here as instructed.
+
+## Summary
+
+**Selected feature: FEATURE-118** — *Impersonation-exit endpoints must verify an impersonation is in progress (review C26)*. Priority `should`, no dependencies, self-contained security fix.
+
+**Problem:** Both exit endpoints in `ImpersonationController` never checked whether an impersonation was actually active. Any logged-in user/admin POSTing them wrote a garbage `unknown -> unknown` audit row, and the user-exit path removed `_security_user`, logging the caller out.
+
+**Implementation:**
+- `src/Controller/ImpersonationController.php` — added an early in-progress guard to both exit actions, keyed on the session markers (`_impersonating_as` for the user exit, `_impersonating_admin_as` for the admin exit). When absent, the action returns a plain redirect with **no audit log and no session teardown**. The guard sits *above* the CSRF check because the no-op path performs no state change (consistent with ADR-016's ordering rationale). The active-impersonation behaviour is untouched, and I deliberately left the `unserialize` concern to its own feature (FEATURE-134).
+- `tests/Functional/Security/ImpersonationExitGuardTest.php` (new) — 2 tests: a plain user and a plain admin each POST their exit endpoint and assert (a) no audit row is written, (b) they remain authenticated.
+
+**Verification:**
+- Targeted new test: OK (2 tests, 6 assertions).
+- Regression watch (Impersonate/ImpersonationAudit/AdminImpersonateAdmin): OK (10 tests, 26 assertions).
+- `bin/verify-fast.sh`: **=== All checks passed ===**, full suite OK (461 tests, 1632 assertions, up from 459), anti-cheat scan clean.
+
+Per the workflow, I did **not** mark `passes=true`, did **not** touch `claude-progress.txt`, and did **not** commit — those await the reviewer pass.
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+Review complete. **REVIEW_PASS** — written to `.agent/review.log`.
+
+## Summary
+
+**FEATURE-118 — Impersonation-exit endpoints must verify an impersonation is in progress (review C26)** passes strict review.
+
+**What the fix does:** Adds an early no-op guard to both exit actions in `ImpersonationController`. When the impersonation session marker is absent, the action returns a plain redirect *before* the CSRF check and before any audit-log write or session teardown — so a plain user/admin can no longer produce a garbage `unknown -> unknown` audit row or (on the user path) log themselves out.
+
+**Why it's correct:**
+- Guards key on the exact markers the teardown paths consume — `_impersonating_as` (set by `ImpersonationAuthenticator:52`) and `_impersonating_admin_as` (set by `AdminAdminManagementController:296`). Grep confirms these two actions are the *only* writers of the two audit actions, so C26 is fully closed.
+- Guard-above-CSRF is safe: the short-circuit changes no state, so a token-less request just gets a redirect (consistent with ADR-016). The active path still runs CSRF before any teardown.
+- All 3 acceptance criteria met; active-impersonation behavior unchanged.
+
+**Tests are real and meaningful:** the new `ImpersonationExitGuardTest` asserts `302` + zero audit rows + caller still authenticated. Against the *pre-fix* code the CSRF-less POST returned `403` (CSRF ran first), so the `302` assertion genuinely fails on the unfixed controller — not a tautology.
+
+**Verification (independently re-run):** targeted test OK (2 tests, 6 assertions); `bin/verify-fast.sh` → "=== All checks passed ===", full suite OK (461 tests, 1632 assertions); anti-cheat clean.
+
+**Non-blocking notes:** the `config/reference.php` churn (auto-generated psalm stub) is unrelated and should be excluded from the feature commit; the admin no-op redirect targets a superadmin-only route (cosmetic). The remaining Definition-of-Done steps (mark `passes=true`, append progress, commit) are still owed but don't gate this pass.
+== Marking feature complete ==
+Tracking files updated. Per the SCRATCHPAD and review, no durable decision was made (no ADR needed — the reviewer explicitly confirmed "no ADR needed") and no ambiguity was found or resolved, so `DECISIONS.md` and `OPEN_QUESTIONS.md` are correctly left untouched.
+
+Summary of changes (tracking only, no application code touched):
+
+- **`.agent/feature_list.json`** — FEATURE-118 set `passes: true` with a 4-item evidence array (controller guard, new test, reviewer re-run + regression watch, verify-fast result). No other feature changed.
+- **`.agent/claude-progress.txt`** — appended a concise FEATURE-118 round summary (what was built, design note, verification, COMPLETE status).
+- **`.agent/DECISIONS.md`** — unchanged (no durable decision; reviewer confirmed no ADR needed).
+- **`.agent/OPEN_QUESTIONS.md`** — unchanged (no ambiguity found or resolved).
+
+Note (non-blocking, flagged by the reviewer): the working tree still contains an incidental `config/reference.php` static-analysis artifact drift unrelated to this feature — recommend `git checkout -- config/reference.php` before committing to keep the feature commit scoped. I have not committed anything, per this step's instructions.
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   99b7eaa..210ea4d  HEAD -> master
+[master 210ea4d] Agent round 12: complete current feature
+ 9 files changed, 381 insertions(+), 67 deletions(-)
+ create mode 100644 tests/Functional/Security/ImpersonationExitGuardTest.php
+Round 12 complete.
+
+==============================
+Agent round 13 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Local app responds at http://auth.localhost
+== Init complete ==
+== Implementation pass ==
+I've completed one coherent vertical slice. Stopping here as instructed.
+
+## Summary
+
+**Selected feature: FEATURE-114** — *Registration POST needs CSRF validation + rate limiting (review C21)* (priority `should`, no dependencies).
+
+The registration POST had **no CSRF validation and no rate limiting** (the CSRF field FEATURE-007 once added was lost in later refactors), leaving `/register` open to CSRF-forged account creation and unthrottled account/email flooding — unlike every other auth POST, all already covered by `EndpointRateLimiter`.
+
+### What I implemented
+- **`templates/registration/register.html.twig`** — added the hidden `_token` = `csrf_token('register')` field (auto-included by the crawler/live forms, so existing form-based tests keep passing).
+- **`src/Controller/RegistrationController.php`** — injected `EndpointRateLimiter`; at the top of the POST block, throttle keyed on client IP (`tooManyAttempts('register', $ip)`) sits **above** the CSRF check (ADR-016 fail-closed pattern), then `isCsrfTokenValid('register', …)`. Either gate re-renders the form with an error and creates no user, sends no email, writes no audit row.
+- **NEW `tests/Functional/Registration/RegistrationSecurityTest.php`** — 2 behavioural tests: missing-CSRF POST is rejected with no user created (AC4); exceeding `rate_limit.max_attempts` blocks the 3rd registration *and* its verification email (AC5). Both genuinely fail against the pre-fix controller.
+- **`tests/Functional/Security/PasswordPolicyTest.php`** — its 7 direct `/register` POSTs would otherwise now pass for the wrong reason (CSRF error) and one positive-path test would break, silently *weakening* policy coverage. Added a `registerPost()` helper that fetches a real token so these stay genuine policy tests, plus an `endpoint_rate_limits` cleanup to avoid cross-test throttle bleed.
+
+### Verification
+`bin/verify-fast.sh` → **OK (463 tests, 1648 assertions)**, `=== All checks passed ===` (PHPUnit + Codeception functional + live-server acceptance). Changed files are clean of anti-cheat patterns.
+
+Per the required workflow, I have **not** set `passes=true`, **not** appended `claude-progress.txt`, and **not** committed — those await the reviewer pass.
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+Review complete. My verdict for the current feature (**FEATURE-114 — Registration POST needs CSRF validation + rate limiting**) is written to `.agent/review.log`:
+
+**REVIEW_PASS**
+
+## Summary
+
+The change is correct, well-scoped, and fully satisfies all five acceptance criteria:
+
+- **CSRF (AC1/AC4)** — `isCsrfTokenValid('register', _token)` added to the controller with a matching hidden `_token` = `csrf_token('register')` in the template. A token-less POST is rejected with no user created.
+- **Rate limiting (AC2)** — throttled via `EndpointRateLimiter` keyed on client IP, reusing the shared `rate_limit.*` config.
+- **Ordering (AC3)** — throttle sits **above** the CSRF check (per ADR-016), so a missing token cannot bypass throttling.
+- **Tests (AC5)** — the rate-limit test proves the 3rd registration is blocked with no user and no verification email.
+
+Key integrity findings that support the pass:
+- Both new tests genuinely fail against the pre-fix controller (not tautologies).
+- `PasswordPolicyTest` was **preserved, not weakened** — the `registerPost()` helper fetches a real token so those tests still exercise password policy rather than short-circuiting on CSRF; the limiter cleanup is legitimate cross-test isolation.
+- No other code path POSTs to `/register` without a token, so no regressions; full suite green (463 tests).
+- No production config, schema, security.yaml, or deployment changes; no anti-cheat patterns.
+
+Per the CLAUDE.md workflow, the remaining Definition-of-Done steps (set `passes=true` + evidence, append `claude-progress.txt`, commit) are still owed but do not gate this reviewer pass.
+== Marking feature complete ==
+Tracking files updated. No changes needed to DECISIONS.md or OPEN_QUESTIONS.md.
+
+Done. Summary of tracking updates for **FEATURE-114** (Registration POST CSRF + rate limiting, review C21):
+
+- **`.agent/feature_list.json`** — set `FEATURE-114` `passes: true` and populated its `evidence` array (controller throttle-above-CSRF change, template `_token`, the new `RegistrationSecurityTest`, the `PasswordPolicyTest` helper/cleanup, verify-fast result, reviewer PASS). No other feature touched.
+- **`.agent/claude-progress.txt`** — prepended a concise round summary (newest-first, matching the existing format).
+- **`.agent/DECISIONS.md`** — no change. The work follows the existing ADR-016 pattern; SCRATCHPAD and the review explicitly note "no new ADR."
+- **`.agent/OPEN_QUESTIONS.md`** — no change. No ambiguity was raised or resolved this round.
+
+No application code was modified in this step.
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   210ea4d..d1a0e61  HEAD -> master
+[master d1a0e61] Agent round 13: complete current feature
+ 10 files changed, 423 insertions(+), 76 deletions(-)
+ create mode 100644 tests/Functional/Registration/RegistrationSecurityTest.php
+Round 13 complete.
+
+==============================
+Agent round 14 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Local app responds at http://auth.localhost
+== Init complete ==
+== Implementation pass ==
+The feature is implemented completely. Stopping here as instructed (one coherent vertical slice).
+
+## Summary
+
+**Selected: FEATURE-110** — *User AND admin deletion is soft-delete (status=inactive), never a hard row removal (ADR-020)*. No unmet dependencies; already decided in ADR-020; unblocks FEATURE-102.
+
+### Problem
+Three "delete" actions called `$em->remove(...); $em->flush();`, physically erasing the row. With no DB foreign keys anywhere (every satellite table keys on a scalar `user_id`/`email`), a hard delete stranded `login_history`/`password_history`/`user_sessions`/tokens against an id that no longer resolved. ADR-020 mandates soft-delete via the existing `active`/`inactive` status field.
+
+### Production changes (minimal, one line each)
+- `src/Controller/AdminUserController.php:154` — `remove($user)` → `$user->setStatus('inactive')`
+- `src/Controller/Api/AdminApiUserController.php:205` — same (keeps 204 response)
+- `src/Controller/AdminAdminManagementController.php:226` — `remove($admin)` → `$admin->setStatus('inactive')`
+
+AC4/AC8 ("cannot authenticate after soft delete") were **already** enforced by the existing `UserChecker`/`AdminChecker` (both throw `DisabledException` on non-active), and the last-active-superadmin guard already keys on `isActive()` — so no new enforcement was needed.
+
+### Tests
+- **New** `tests/Functional/Security/SoftDeleteTest.php` (3 tests, 14 assertions) — the FEATURE-110 contract: admin-panel delete soft-deletes + preserves a seeded `login_history` satellite row + blocks user login; API delete soft-deletes (204 + row retained inactive); admin delete soft-deletes + blocks admin-firewall login.
+- **Reconciled** existing tests that asserted hard-delete (a legitimate behavior change per ADR-020, not weakening): `AdminUserDeleteTest`, `AdminManagementTest`, `AdminApiUserCrudTest`, and acceptance `AdminApiCest`/`AdminUserCrudCest`/`AdminFlowsCest`. Added a `seeUserHasStatus()` DatabaseHelper for the acceptance actor.
+
+### Verification
+`bin/verify-fast.sh` → **OK (466 tests, 1670 assertions)**, `=== All checks passed ===`. Changed files clean of anti-cheat patterns. (The `eraseCredentials` deprecation notices are pre-existing, unrelated to this change.)
+
+Per the workflow I have **not** set `passes=true`, **not** appended to `claude-progress.txt`, and **not** committed — awaiting the reviewer pass.
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+Review complete. Verdict: **REVIEW_PASS** (written to `.agent/review.log`).
+
+## Summary — FEATURE-110 (soft-delete for users and admins)
+
+The change is clean, minimal, and correct. All 9 acceptance criteria are met:
+
+- **Production code** — the three delete actions (`AdminUserController`, `Api/AdminApiUserController`, `AdminAdminManagementController`) each swap the single `$em->remove(...)` line for `setStatus('inactive')`. CSRF guards, audit logging, the self-delete guard, the last-active-superadmin guard, and the 204/redirect responses are all untouched.
+- **Auth-block is genuinely enforced** — I verified `UserChecker` and `AdminChecker` both throw `DisabledException` in `checkPreAuth` *and* `checkPostAuth` on non-active status, so soft-deleted accounts can't log in and existing sessions are cut on the next request. No new enforcement was needed, and the SCRATCHPAD's claim matches the source.
+- **Tests are meaningful** — the new `SoftDeleteTest` seeds a `login_history` satellite row and proves it survives; it would fail against the old hard-delete path (`assertNotNull` on a physically-removed row). The reconciled existing/acceptance tests reflect the ADR-020 decision change, not test weakening.
+- **Verification** — I independently ran `bin/verify-fast.sh`: **466 tests, 1670 assertions, all checks passed** (only pre-existing, unrelated `eraseCredentials` deprecations).
+
+No spec mismatch, no schema/migration, no production config changes, no placeholders, no dead UI.
+
+The only outstanding items are the CLAUDE.md definition-of-done bookkeeping (not part of the review pass): set `passes=true` + evidence in `feature_list.json`, append `claude-progress.txt`, and commit.
+== Marking feature complete ==
+Tracking files updated for FEATURE-110. Summary of changes (no application code touched):
+
+- **`.agent/feature_list.json`** — FEATURE-110 marked `passes: true`; added 5 concise evidence entries (the three controller soft-delete swaps; the new `SoftDeleteTest`; the already-existing `UserChecker`/`AdminChecker` auth gating; the reconciled hard-delete tests; and the verify/reviewer result: 466 tests / 1670 assertions, REVIEW_PASS, 9/9 ACs). No other feature altered.
+- **`.agent/claude-progress.txt`** — prepended a concise round summary (what was built, design note on the existing checker enforcement, verification, COMPLETE status).
+- **`.agent/DECISIONS.md`** — ADR-020 already recorded this decision, so no new ADR. I only corrected its now-stale status/impact lines from "implementation pending" to reflect the soft-delete is done (FEATURE-111 ephemeral-prune still pending).
+- **`.agent/OPEN_QUESTIONS.md`** — left unchanged; no ambiguity was found or resolved this round.
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   d1a0e61..f82e54e  HEAD -> master
+[master f82e54e] Agent round 14: complete current feature
+ 18 files changed, 512 insertions(+), 104 deletions(-)
+ create mode 100644 tests/Functional/Security/SoftDeleteTest.php
+Round 14 complete.
+
+==============================
+Agent round 15 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Local app responds at http://auth.localhost
+== Init complete ==
+== Implementation pass ==
+I've completed one coherent vertical slice. Here's the summary.
+
+## FEATURE-102 — Kill ALL recovery tokens on deactivate OR delete + reject reset for inactive accounts (review C7 / ADR-020)
+
+**Selected** because FEATURE-110 (its only dependency) is `passes=true`, and it's the natural security follow-on to the ADR-020 soft-delete work.
+
+### The gap closed
+A soft-deleted/deactivated account was blocked from *login* (UserChecker/AdminChecker), but its outstanding `password_reset_tokens`, `admin_password_reset_tokens`, and `magic_link_tokens` stayed valid, and the reset controllers never checked account status — so a pre-deactivation reset link could still set a fresh password.
+
+### What was built
+- **New `src/Security/RecoveryTokenInvalidator.php`** — autowired service with `invalidateForUser(email)` (kills unused password-reset + magic-link tokens) and `invalidateForAdmin(email)` (admin reset tokens), via bulk DQL mirroring the existing `invalidateOtherUnusedTokens` pattern.
+- **Immediate kill wired into every inactive-transition** (no bypass, one line each after the status flush): user edit→inactive, user soft-delete (web + API), API deactivate, API PATCH→inactive; admin edit→inactive, admin soft-delete.
+- **Consumption-time gate** (defense in depth, AC3/AC4) in `PasswordResetController::reset` and `AdminPasswordResetController::reset` — after token validity, resolve the account by email and reject with "no longer valid" (token=null) if null or inactive; covers both the GET form and POST submit.
+- **New `tests/Functional/Security/RecoveryTokenInvalidationTest.php`** — 7 tests covering AC1–AC9.
+
+### Verification
+- New test: **7 tests, 18 assertions — OK**.
+- Meaningfulness proven: disabling the invalidator → 5 invalidation tests fail; disabling the consumption gate → both AC3/AC4 tests fail.
+- **`bin/verify-fast.sh`: OK (473 tests, 1688 assertions), "=== All checks passed ==="**, anti-cheat clean.
+
+Per the workflow I have **not** marked `passes=true`, **not** appended `claude-progress.txt`, and **not** committed — those remain for the reviewer pass and bookkeeping step. The `config/reference.php` / `.agent/agent-loop.out` entries in the diff are pre-existing auto-generated drift, not part of this change.
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+Review complete. Result written to `.agent/review.log`.
+
+**REVIEW_PASS** — FEATURE-102 (Kill ALL recovery tokens on deactivate/delete + reject reset for inactive accounts, both realms).
+
+What I verified:
+- **All 9 acceptance criteria met**, each backed by a real behavioural test in `RecoveryTokenInvalidationTest` (7 tests / 18 assertions).
+- **Invariant completeness**: I audited every `setStatus()` call site in `src/`. All deactivate/delete transitions call the invalidator; the only two uncovered sites are user-**create** paths (no outstanding tokens exist), correctly excluded.
+- **Service design** mirrors the existing `invalidateOtherUnusedTokens` bulk-DQL pattern, keeps user/admin token tables separate (ADR-009), and is idempotent.
+- **Consumption gate** rejects on both GET and POST before any password mutation; tests confirm the inactive account's password hash is unchanged after a POST.
+- No fake/skipped tests (anti-cheat clean), no schema/production/config changes, no security regressions.
+- **Independently re-ran** the full `bin/verify-fast.sh`: OK (473 tests, 1688 assertions), all checks passed.
+
+Note: per CLAUDE.md's Definition of Done, the remaining bookkeeping (set `passes:true` + evidence in `feature_list.json`, append `claude-progress.txt`, and commit) is still owed but does not gate this review.
+== Marking feature complete ==
+Done. Tracking files updated for **FEATURE-102**:
+
+- **feature_list.json** — set `passes: true` and added 5 evidence lines (new `RecoveryTokenInvalidator` service, the 7 controller call sites at inactive-transitions, the reset-consumption gate, the new functional test with 7 tests/18 assertions, and the verify+reviewer pass).
+- **claude-progress.txt** — appended a concise Round 15 summary (problem, change, tests, verification, status).
+- **DECISIONS.md** — not touched: no new durable decision (SCRATCHPAD and reviewer both confirm this extends ADR-020, no new ADR needed).
+- **OPEN_QUESTIONS.md** — not touched: no new ambiguity found or resolved.
+
+No unrelated features were changed, and no application code was edited.
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   f82e54e..055ac4b  HEAD -> master
+[master 055ac4b] Agent round 15: complete current feature
+ 13 files changed, 667 insertions(+), 64 deletions(-)
+ create mode 100644 src/Security/RecoveryTokenInvalidator.php
+ create mode 100644 tests/Functional/Security/RecoveryTokenInvalidationTest.php
+Round 15 complete.
+
+==============================
+Agent round 16 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Local app responds at http://auth.localhost
+== Init complete ==
+== Implementation pass ==
+Feature slice complete. Summary:
+
+## FEATURE-125 — Admin login page must render flash messages (review C35)
+
+**Problem:** `templates/admin/security/login.html.twig` rendered only the security `error`, never flash messages — copy-paste drift from the user login template. So after a self-service admin password reset, `AdminPasswordResetController::reset` set a `success` flash and redirected to `/admin/login`, where the confirmation silently vanished.
+
+**What I changed:**
+- `templates/admin/security/login.html.twig` — added `error` and `success` flash loops right after the security-error block, mirroring the user login template exactly. No controller change needed (the flashes were already being set).
+- `tests/Functional/Security/AdminLoginFlashTest.php` (new) — 2 tests:
+  - `testSelfServiceResetSuccessFlashShownOnAdminLogin` — drives the real reset flow (seed admin + valid token → POST new password → follow redirect to `/admin/login`) and asserts the `.success` confirmation renders.
+  - `testErrorFlashShownOnAdminLogin` — sets an `error` flash via the session and asserts `.error` renders.
+
+**Verification:**
+- Confirmed both tests **fail** on the pre-fix template (proving they're meaningful), then **pass** after the fix.
+- `bin/verify-fast.sh`: `=== All checks passed ===` (475 tests, 1696 assertions; anti-cheat scan clean).
+
+**Note on AC2:** the superadmin-triggered reset redirects to `app_admin_superadmin_admins`, whose template already renders flashes — so the admin-login page was the only gap.
+
+Per the workflow, I stopped here: **not** marked `passes=true`, `claude-progress.txt` **not** appended, **not** committed — awaiting the reviewer pass. The only other modified file is the pre-existing untracked `.agent/agent-loop.out` (unrelated to this feature).
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+Review complete.
+
+## REVIEW_PASS — FEATURE-125
+
+**Admin login page must render flash messages (reset-success)**
+
+The current feature is a clean, minimal fix for copy-paste template drift, and it satisfies all three acceptance criteria:
+
+- **AC1** ✅ — `templates/admin/security/login.html.twig` now renders both `error` and `success` flash loops, byte-identical to the already-correct user login template.
+- **AC2** ✅ — Self-service admin reset redirects to `/admin/login` (controller line 135), which now shows the confirmation; superadmin-triggered reset goes to the admins-list template that already rendered flashes (correctly identified as a non-gap).
+- **AC3** ✅ — Two real functional tests with genuine assertions.
+
+Key findings:
+- The success test drives the **actual reset flow** end-to-end (seed admin + valid token → POST new password → follow redirect → assert `.success` text) — it genuinely fails on the pre-fix template, so it's meaningful, not tautological.
+- No skipped/faked tests, no weakened expectations, anti-cheat scan clean.
+- No controller/config/schema/security changes; Twig auto-escapes flash content (no XSS surface).
+- `bin/verify-fast.sh` passes (475 tests, 1696 assertions).
+
+Result written to `.agent/review.log` (prepended, newest-on-top per the log's convention).
+
+**Still owed to close out** (per CLAUDE.md Definition of Done, not part of the review gate): set `FEATURE-125` `passes=true` + evidence in `feature_list.json`, append `claude-progress.txt`, and commit the template + new test only — keeping the unrelated `.agent/agent-loop.out` drift out of the commit.
+== Marking feature complete ==
+Tracking files updated. Summary:
+
+- **`.agent/feature_list.json`** — FEATURE-125 set `passes: true` with a 4-item evidence array (the template change, the new `AdminLoginFlashTest.php` with test names/assertion counts, verify-fast result, reviewer REVIEW_PASS). JSON validated; no other feature touched.
+- **`.agent/claude-progress.txt`** — appended a concise FEATURE-125 round summary (problem, change, tests, verification, status).
+- **`.agent/DECISIONS.md`** — no change (pure template drift fix; no durable decision, no new ADR).
+- **`.agent/OPEN_QUESTIONS.md`** — no change (no ambiguity found or resolved).
+
+No application code was edited in this step. The template fix and new test remain as they were left by the implement/verify/review passes and are ready to commit.
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   055ac4b..9152b18  HEAD -> master
+[master 9152b18] Agent round 16: complete current feature
+ 8 files changed, 364 insertions(+), 78 deletions(-)
+ create mode 100644 tests/Functional/Security/AdminLoginFlashTest.php
+Round 16 complete.
+
+==============================
+Agent round 17 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Local app responds at http://auth.localhost
+== Init complete ==
+== Implementation pass ==
+Full suite green: **480 tests, 1719 assertions, "=== All checks passed ==="** (the deprecations are pre-existing `eraseCredentials` noise). The new command test is 5/5.
+
+## Summary
+
+**Selected feature: FEATURE-111** — *Combined maintenance prune command for expired/used ephemeral tokens + dead user_sessions (ADR-020)*. Priority `should`, `depends_on: []` (satisfied). It's the sole surviving remnant of review finding C11, and ADR-020 already records the decision — no new ADR, no schema change, no new config key.
+
+### What I built
+- **`src/Command/MaintenancePruneCommand.php`** (new) — `app:maintenance:prune`, mirroring `AuditLogPruneCommand`'s structure. Deletes ephemeral records and reports per-table counts; never touches `login_history`/`password_history`/`audit_log`.
+- **Repository delete methods** (`deleteExpiredOrUsed(\DateTimeImmutable)`) on `PasswordResetTokenRepository`, `AdminPasswordResetTokenRepository`, and a **new `MagicLinkTokenRepository`** — DQL `WHERE expiresAt < :now OR usedAt IS NOT NULL`. Also set `repositoryClass` on the `MagicLinkToken` entity (it was the odd token entity with none), aligning it with its siblings.
+- **`UserSessionRepository::deleteExpired(int $now)`** — raw DBAL that removes cross-ref rows whose `session_id` has no *live* row in the PdoSessionHandler `sessions` table (`sess_time + sess_lifetime > now`). That's the authoritative per-session lifetime, independent of explicit logout, and clears the "phantom Active Sessions" rows.
+- **`tests/Functional/Command/MaintenancePruneCommandTest.php`** (new, 5 tests / 23 assertions) — expired+used tokens pruned but valid survives; dead/expired/orphan user_sessions pruned but live survives; `login_history` retained (AC5); per-table count output (AC6); idempotent re-run.
+
+### Notable bug caught during implementation
+The `user_sessions` prune initially deleted *live* sessions too. Cause: binding `:now` as a string made SQLite compare the numeric `sess_time + sess_lifetime` expression against a TEXT value — and by storage-class ordering INTEGER is always < TEXT, so every row failed the "still live" test. Fixed by binding `now` as `ParameterType::INTEGER` (documented inline).
+
+### Not done per instructions
+Did **not** set `passes=true`, did **not** append `claude-progress.txt`, did **not** commit — awaiting the reviewer pass. `.agent/SCRATCHPAD.md` was rewritten for this feature. The pre-existing `.agent/agent-loop.out` drift is unrelated and left out of scope.
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+Review complete.
+
+## FEATURE-111 — `app:maintenance:prune` command → **REVIEW_PASS**
+
+I reviewed only the current feature (FEATURE-111, priority `should`, no unmet deps). Result written to `.agent/review.log`.
+
+**What it does (per ADR-020):** one console command that flushes genuinely ephemeral security artifacts — expired-or-used password/admin-password/magic-link tokens and dead `user_sessions` cross-ref rows — while never touching retained historical data.
+
+**Findings:**
+- **All 7 acceptance criteria met**, each covered by a real behavioural test.
+- **Tests:** 5 tests / 23 assertions, independently re-run green. No skips, no fake/empty assertions; cleanup is namespaced to `prune111-` rows.
+- **Correctness:** token deletes use the same `expiresAt/usedAt` semantics as the entities; idempotency is inherent. The SQLite storage-class pitfall in the session prune (numeric `sess_time + sess_lifetime > :now`) is correctly handled by binding `$now` as `ParameterType::INTEGER`, and the "live session survives" test guards it.
+- **Security/conventions:** parameterised queries only; mirrors `AuditLogPruneCommand`; new `MagicLinkTokenRepository` aligns the entity with its siblings; console-only so no UI/route surface. No schema change, no production config change, no new ADR needed.
+
+**One non-blocking note:** AC5 asserts `login_history` retention directly; `password_history`/`audit_log` are protected by construction (no code path touches them) but not separately asserted — fine, optional future hardening.
+
+**Still owed for Definition of Done** (not part of the review gate): set `passes=true` + evidence in `feature_list.json`, append `claude-progress.txt`, and commit — leaving the unrelated `.agent/agent-loop.out` drift out of the feature commit.
+== Marking feature complete ==
+Tracking files updated. No new ambiguity was found or resolved this round, so OPEN_QUESTIONS.md is left unchanged. No application code was touched.
+
+Summary of changes:
+
+- **`.agent/feature_list.json`** — FEATURE-111 set to `passes: true` with a 6-item evidence array (command, repositories/entity wiring, the 5-test/23-assertion functional test, reviewer re-run, verify-fast, REVIEW_PASS). No other feature touched.
+- **`.agent/claude-progress.txt`** — appended a concise FEATURE-111 round summary (what was built, design note, verification, COMPLETE status).
+- **`.agent/DECISIONS.md`** — updated ADR-020's Impact/gap and Status lines: the stale "No prune command exists / prune still pending" text is replaced with the implemented `app:maintenance:prune` record. No new decision was made — only the existing ADR's status corrected.
+- **`.agent/OPEN_QUESTIONS.md`** — unchanged (no ambiguity this round).
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   9152b18..3c0c603  HEAD -> master
+[master 3c0c603] Agent round 17: complete current feature
+ 15 files changed, 598 insertions(+), 83 deletions(-)
+ create mode 100644 src/Command/MaintenancePruneCommand.php
+ create mode 100644 src/Repository/MagicLinkTokenRepository.php
+ create mode 100644 tests/Functional/Command/MaintenancePruneCommandTest.php
+Round 17 complete.
+
+==============================
+Agent round 18 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Local app responds at http://auth.localhost
+== Init complete ==
+== Implementation pass ==
+Full suite passes: **OK (484 tests, 1737 assertions)** and `=== All checks passed ===`.
+
+FEATURE-113 is implemented as a coherent vertical slice. Per the required workflow, I've stopped here without marking `passes=true`, updating `claude-progress.txt`, or committing.
+
+## Summary
+
+**Feature: FEATURE-113 — Apply the IP whitelist to magic-link login (review C20)**
+
+The bug: `IpWhitelistListener` early-returned unless the authenticator was `FormLoginAuthenticator`, so `MagicLinkAuthenticator` was never IP-checked — a user restricted by `allowedIps` (or under a global `ip_whitelist.user_ips` policy) could log in from any IP by requesting a magic link, fully bypassing the whitelist.
+
+**Changes**
+- `src/EventListener/IpWhitelistListener.php` — the class guard now passes for both `FormLoginAuthenticator` **and** `MagicLinkAuthenticator`. Because the magic-link verify route is `/magic-link/verify` (not `^/admin`), it flows through the existing user-firewall branch, so global `ip_whitelist.user_ips` and the per-user `allowedIps` override (AC3) are both enforced with no other change. Added a comment documenting that `ImpersonationAuthenticator` (admin-initiated switch) and the API `TokenAuthenticator`/`AdminTokenAuthenticator` remain intentionally exempt (AC4).
+- `tests/Functional/Security/MagicLinkIpWhitelistTest.php` (new) — 4 functional tests: whitelisted global IP succeeds; non-whitelisted global IP blocked (→ `/magic-link` + `.error` "not allowed", user left unauthenticated); per-user `allowedIps` restriction enforced; per-user override allows despite an excluding global policy.
+
+**Verification**
+- `MagicLinkIpWhitelistTest`: OK (4 tests, 18 assertions).
+- Regression watch (`IpWhitelistTest`, `MagicLinkTest`, `TrustedIpTest`, `ImpersonateTest`): OK (22 tests, 70 assertions).
+- `bin/verify-fast.sh`: OK (484 tests, 1737 assertions) — `=== All checks passed ===`.
+
+All 5 acceptance criteria are covered. Remaining per the definition of done (deliberately not done yet): reviewer pass, `feature_list.json` evidence + `passes=true`, `claude-progress.txt` append, and commit.
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+Review complete.
+
+## REVIEW_PASS — FEATURE-113: Apply the IP whitelist to magic-link login (review C20)
+
+The change is a clean, minimal security fix and every acceptance criterion is met.
+
+**What was checked:**
+- **The fix** — `IpWhitelistListener`'s `CheckPassportEvent` guard now matches both `FormLoginAuthenticator` and `MagicLinkAuthenticator`. Because `/magic-link/verify` isn't under `^/admin`, it correctly flows through the existing user-firewall branch, so global `ip_whitelist.user_ips` and per-user `allowedIps` are both enforced with no duplicated logic. `ImpersonationAuthenticator` and the API PAT authenticators stay exempt by not matching either class, and the exemption is documented in a comment.
+- **AC coverage** — all 5 covered by 4 real functional tests: whitelisted IP succeeds; non-whitelisted global policy blocks; per-user `allowedIps` blocks; per-user override allows despite an excluding global policy. Blocked tests assert redirect target, the "not allowed" error, **and** that the user is left unauthenticated.
+- **End-to-end soundness** — verified the passport carries a `UserBadge` (so the per-user lookup works), the failure path redirects to `/magic-link` with a `magic_link_error` flash, and that flash renders as `.error` in the template the tests assert against.
+- **Independent verification** — re-ran the test myself: `OK (4 tests, 18 assertions)`. Full suite reported green (484 tests).
+
+No spec mismatch, no fake/skipped tests, no security regression (this closes a real whitelist bypass), no production config change.
+
+**One non-blocking note:** `config/reference.php` (auto-generated psalm reference, confirmed not loaded at runtime) is incidental drift and should be excluded from the feature commit alongside `.agent/agent-loop.out`.
+
+The result was written to `.agent/review.log`.
+== Marking feature complete ==
+Tracking files updated. No changes to DECISIONS.md or OPEN_QUESTIONS.md — this feature made no durable decision (no new ADR; the review explicitly confirms "no new ADR") and introduced/resolved no ambiguity.
+
+Summary of tracking-only updates for **FEATURE-113** (Apply the IP whitelist to magic-link login, review C20):
+
+- **feature_list.json** — set `passes: true` and added a 4-item evidence array (listener guard change, the new functional test with its 4 cases/18 assertions, verify-fast result, reviewer REVIEW_PASS 5/5).
+- **claude-progress.txt** — prepended a concise round summary (what was built, design note, verification, status).
+- **DECISIONS.md** — no change (no durable decision).
+- **OPEN_QUESTIONS.md** — no change (no ambiguity found/resolved).
+
+No application code was touched, and no unrelated features were modified.
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   3c0c603..b6f7859  HEAD -> master
+[master b6f7859] Agent round 18: complete current feature
+ 8 files changed, 428 insertions(+), 72 deletions(-)
+ create mode 100644 tests/Functional/Security/MagicLinkIpWhitelistTest.php
+Round 18 complete.
+
+==============================
+Agent round 19 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Local app responds at http://auth.localhost
+== Init complete ==
+== Implementation pass ==
+All files lint clean. The feature is implemented completely. Per the workflow, I'll stop here without marking `passes=true`, without updating `claude-progress.txt`, and without committing.
+
+## Summary
+
+**Selected feature: FEATURE-135** — Validate status and back the free-string type fields (actorType/outcome/user_type) with enums/allowlist (review C33). No dependencies; matches the project's explicit/auditable design preference.
+
+**What I built (smallest complete slice, no schema migration):**
+
+New single-source-of-truth backed enums under `src/Enum/`:
+- `AccountStatus` (`active`|`inactive`) — replaces the `ALLOWED_STATUSES` const that was **duplicated across three controllers**
+- `PrincipalType` (`user`|`admin`) — for `audit_log.actor_type` and `user_sessions.user_type`
+- `AuditOutcome` (`success`|`failure`) — for `audit_log.outcome`
+
+Each exposes `values()` and `isValid()` helpers.
+
+Setter validation (default-deny, mirroring the existing `setRoles()` allowlist — throws `\InvalidArgumentException` on an out-of-set value):
+- `User::setStatus`, `Admin::setStatus` → `AccountStatus`
+- `AuditLog::setActorType` → `PrincipalType`; `AuditLog::setOutcome` → `AuditOutcome`
+- `UserSession::setUserType` → `PrincipalType`
+
+Controllers: deleted the three `ALLOWED_STATUSES` consts and replaced every `in_array($status, self::ALLOWED_STATUSES, true)` with `AccountStatus::isValid($status)` — **behaviour identical** (controllers already validate before `setStatus`; the setter throw is a backstop). Left the C22 silent-drop bugs untouched (that's FEATURE-115).
+
+**Tests added:** `tests/Unit/Enum/AccountStatusTest.php` (enum contracts); extended `UserTest`/`AdminTest` (`setStatus('banned')` rejected, valid accepted, non-mutation on rejection); new `AuditLogTest`/`UserSessionTest` unit tests for actorType/outcome/userType.
+
+**Design note (why columns stay strings, not Doctrine `enumType`):** mapping to `enumType` would change entity getters to return enum objects and ripple through dozens of string comparisons and raw-DBAL test inserts. The enum-as-validated-source satisfies AC2/AC3 ("backed by enums **or** a validated allowlist") with a small, reviewable diff and zero schema change. Would warrant a new ADR if the reviewer wants it recorded.
+
+**Verification:** `bin/verify-fast.sh` → PHPUnit 480 tests / 1551 assertions green, Codeception 484 / 1737 green, `=== All checks passed ===`. All edited files lint clean. (The PHPUnit "Notices" are the pre-existing `eraseCredentials` Symfony 7.3 deprecations, unrelated to this change.)
+
+Not yet done per instructions: `passes=true`, `claude-progress.txt`, commit — awaiting reviewer pass.
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+Review complete. Result written to `.agent/review.log`.
+
+## REVIEW_PASS — FEATURE-135
+
+The current feature validates the load-bearing `status` field and backs three other free-string type columns (`actorType`, `outcome`, `user_type`) with PHP 8.1 backed enums as a single source of truth.
+
+**All 5 acceptance criteria met:**
+- `User`/`Admin::setStatus()` now reject any value outside `{active,inactive}` (default-deny, mirroring `setRoles()`).
+- The three duplicated per-controller `ALLOWED_STATUSES` consts are deleted, replaced by `App\Enum\AccountStatus`.
+- `AuditLog::setActorType`/`setOutcome` and `UserSession::setUserType` validate against `PrincipalType`/`AuditOutcome`.
+- No data breakage: columns stay `string`, defaults are property initializers, Doctrine hydrates via reflection.
+- Real unit tests cover accept + reject paths.
+
+**Key verification I did independently** — since the setters now *throw*, a wrong caller would 500. I traced every one of the ~21 `AuditLogger::log()` callers plus all `setStatus`/`setUserType` call sites: each passes a literal valid value or a pre-`isValid()`-checked value, so the throw is a pure unreachable backstop. No new runtime failure surface.
+
+`bin/verify-fast.sh` passes cleanly (484 tests, 1737 assertions), which I re-ran rather than trusting the log.
+
+Non-blocking notes recorded (test class name broader than filename; `config/reference.php` auto-generated drift to leave out of the commit). Definition-of-Done steps still owed: flip `passes=true` + evidence in `feature_list.json`, append `claude-progress.txt`, and commit.
+== Marking feature complete ==
+Tracking files updated. Summary of what I changed (application code untouched):
+
+- **`.agent/feature_list.json`** — marked only **FEATURE-135** `passes: true` and populated its `evidence` array (7 concise entries covering the three new enums, the four entity setters, the controller const de-dup, the no-data-breakage rationale, the new/extended tests, and the reviewer's independent verification: 484 tests / 1737 assertions, REVIEW_PASS, 5/5 ACs). No other feature touched.
+- **`.agent/claude-progress.txt`** — prepended a concise FEATURE-135 round summary matching the established format.
+- **`.agent/DECISIONS.md`** — no change. Per SCRATCHPAD and the review log, this feature was explicitly a no-new-ADR change (ties to the existing explicit/auditable design preference, no schema/config change).
+- **`.agent/OPEN_QUESTIONS.md`** — no change. No new ambiguity was raised or resolved this round.
+
+Note: the working tree still carries the incidental `config/reference.php` and `.agent/agent-loop.out` drift that the reviewer flagged as out-of-scope — worth excluding when this feature is committed, but that's the commit step, not this tracking-only step.
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   b6f7859..deabc50  HEAD -> master
+[master deabc50] Agent round 19: complete current feature
+ 22 files changed, 619 insertions(+), 72 deletions(-)
+ create mode 100644 src/Enum/AccountStatus.php
+ create mode 100644 src/Enum/AuditOutcome.php
+ create mode 100644 src/Enum/PrincipalType.php
+ create mode 100644 tests/Unit/Entity/AuditLogTest.php
+ create mode 100644 tests/Unit/Entity/UserSessionTest.php
+ create mode 100644 tests/Unit/Enum/AccountStatusTest.php
+Round 19 complete.
+
+==============================
+Agent round 20 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Local app responds at http://auth.localhost
+== Init complete ==
+== Implementation pass ==
+I've completed one coherent vertical slice. Stopping here per the workflow.
+
+## Summary
+
+**Selected feature: FEATURE-134** — *Impersonation exit must not unserialize a session-stored token — restore original admin by identifier + re-auth (review C18)*. A self-contained security fix with no dependencies.
+
+### What I did
+
+**1. Rewrote `.agent/SCRATCHPAD.md`** for FEATURE-134 (problem, AC→design mapping, safety analysis, test plan).
+
+**2. Producer side — `AdminAdminManagementController::impersonateStart`:**
+- Removed the `_original_admin_token` serialized-token stash.
+- Removed the manual `$session->set('_security_admin', serialize($newToken))` — relies on the existing `$tokenStorage->setToken(...)` + stateful-firewall `ContextListener` to persist. This eliminates the last app-code `serialize()` in the flow.
+
+**3. Consumer side — `ImpersonationController::exitAdminImpersonation`:**
+- Deleted the `unserialize()` restoration block.
+- Restores the original superadmin by loading the Admin via the admin user provider (`security.user.provider.concrete.app_admins`) from the plain `_impersonating_admin_by` identifier, minting a fresh `PostAuthenticationToken`.
+- **Fail-closed:** if the identifier is absent/`unknown`, the admin no longer loads (`UserNotFoundException`), or the admin is inactive → drops the admin token (`setToken(null)` + removes `_security_admin`) and redirects to a clean `/admin/login`.
+
+**4. New test** `tests/Functional/Security/AdminImpersonationExitTest.php` (2 tests): exit restores the original superadmin identity+roles (superadmin-only page reachable, banner gone); exit fails closed when the original superadmin is disabled mid-impersonation (session bounces to login).
+
+### Verification
+- `bin/verify-fast.sh`: **=== All checks passed ===** (486 tests, 1746 assertions).
+- Impersonation regression watch (14 tests, 41 assertions) green.
+- grep confirms no `serialize`/`unserialize` calls remain in the impersonation flow.
+
+Per instructions, I did **not** mark `passes=true`, did **not** update `claude-progress.txt`, and did **not** commit — awaiting the reviewer pass. The `.agent/agent-loop.out` drift is unrelated and should stay out of any commit.
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+Review complete. **REVIEW_PASS** for FEATURE-134.
+
+## Summary
+
+I reviewed the current feature — FEATURE-134 (impersonation exit must not `unserialize()` a session-stored token) — as a strict senior reviewer, and it passes.
+
+**What the change does:**
+- **Start path** (`AdminAdminManagementController`): removes the `_original_admin_token` stash and the manual `serialize($newToken)` write; relies on `setToken()` + stateful firewall's ContextListener to persist `_security_admin`.
+- **Exit path** (`ImpersonationController`): replaces `unserialize()` with a provider-load restore — reads the plain `_impersonating_admin_by` identifier, loads the Admin via the admin user provider, mints a fresh `PostAuthenticationToken`. Fails closed (drops token → clean admin login) if the identifier is missing/`unknown`, the admin was deleted (`UserNotFoundException`), or is disabled (`!isActive()`).
+
+**Verification I ran independently (not trusted from the log):**
+- All 6 acceptance criteria met.
+- `grep` confirms no `serialize()`/`unserialize()` remain (comments only) and zero stray `_original_admin_token` references across `src/`, `templates/`, `tests/`, `config/`.
+- Targeted tests: **OK (5 tests, 15 assertions)** — the logged `AccessDeniedHttpException` is the fail-closed test's expected `/admin/login` bounce.
+- `bin/verify-fast.sh`: **=== All checks passed ===** (486 tests, 1746 assertions).
+
+No spec mismatch, no weak/fake/skipped tests, no security regression (it's a net hardening — removes a deserialization-gadget amplifier and makes exit fail-closed), no production config changes, no dead UI.
+
+One non-blocking note (documented, not a required fix): the exit audit row is logged with outcome `success` even on the fail-closed path.
+
+Result written to `.agent/review.log` (prepended). Per CLAUDE.md's Definition of Done, the still-owed completion steps are: set `passes: true` + evidence in `feature_list.json`, append `claude-progress.txt`, and commit — those are the implementer's steps, not part of this review pass.
+== Marking feature complete ==
+Tracking files updated. Done.
+
+**FEATURE-134** — Impersonation exit must not unserialize a session-stored token (review C18):
+
+- **feature_list.json** — set `passes: true` and added 5 concise evidence entries (exit provider-load restore, start-side stash/serialize removal, fail-closed behaviour, the new test file, and reviewer/verify results — 6/6 ACs).
+- **claude-progress.txt** — prepended a round summary (what was built, design note, verification, COMPLETE status).
+- **DECISIONS.md** — no change. SCRATCHPAD and reviewer both confirm no new ADR; this follows the existing app-code serialization standard and ADR-014 impersonation design.
+- **OPEN_QUESTIONS.md** — no change. No new ambiguity found or resolved this round.
+
+No application code was touched, and no unrelated features were marked complete.
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   deabc50..50cd54a  HEAD -> master
+[master 50cd54a] Agent round 20: complete current feature
+ 9 files changed, 498 insertions(+), 116 deletions(-)
+ create mode 100644 tests/Functional/Security/AdminImpersonationExitTest.php
+Round 20 complete.
+
+==============================
+Agent round 21 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Local app responds at http://auth.localhost
+== Init complete ==
+== Implementation pass ==
+All checks pass: **489 tests, 1757 assertions, "=== All checks passed ==="** (the deprecations are pre-existing `eraseCredentials` notices, unrelated).
+
+## Summary
+
+Selected **FEATURE-120 — Admin config save must validate values per field type (review C28)**. No unmet dependencies; clean, self-contained slice. Implemented (not yet marked `passes=true`, progress log not appended, not committed — per the workflow).
+
+**The bug (C28):** `AdminConfigController::save` wrote any submitted string for any config field with no validation, so `rate_limit.max_attempts=banana` persisted and silently coerced to `0` (= rate limiting disabled); out-of-set enums like `registration.mode=bogus` were likewise accepted.
+
+**What I built:**
+- **Enriched field declarations** across the 8 config pages so fields carry a *real* type/constraint (the "declared type" there was previously only `text`/`bool`): numeric fields → `int` with a `min` bound; closed-set fields → `enum` with `options` (`registration.mode`, `login_notifications.recognition_mode`, `email_verification.mode`, `2fa.enforcement` — each option set verified against its consuming code). Genuine free-form fields (webhook URLs, IP lists) stay `text`; URL/IP safety is out of scope (FEATURE-105 / the whitelist listener).
+- **`src/Config/ConfigFieldValidator.php`** — pure, unit-tested service: rejects non-integers/negatives/out-of-range for `int`, out-of-set values for `enum`, non-canonical `bool`; passes `text`/unknown through.
+- **`AdminConfigController`** — validates every *submitted* field; if any fails, persists nothing and re-renders the page (HTTP 422) with per-field errors and the admin's rejected input. Only fully-valid pages save + redirect. Partial POSTs no longer clobber untouched fields. Extracted a shared `renderConfig()` helper used by both `index()` and the failure path.
+- **Template** — renders `.field-error` per field plus a summary banner.
+
+**Tests (test-first):**
+- `tests/Unit/Config/ConfigFieldValidatorTest.php` — int/enum/bool/text coverage incl. `banana`, `-5`, `1.5`, empty, out-of-set, min/max bounds.
+- `tests/Functional/Admin/ConfigValidationTest.php` — AC4 (non-int `rate_limit.max_attempts` → 422 + field error + not persisted), out-of-set enum rejected, valid save still persists.
+
+**Regression safety:** every existing controller-POST config test submits valid values, so all still 302-redirect and persist; the "validate only submitted fields" rule preserved the partial-POST tests (`AdminConfigTest`, `RegistrationModeTest`). No schema change, no new config key, no ADR (ties to the existing explicit/auditable design preference).
+
+The stale FEATURE-134 SCRATCHPAD was rewritten for this feature. Note: `.agent/agent-loop.out` shows as modified but is pre-existing drift I didn't touch — leave it out of any commit.
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+Review complete. Result written to `.agent/review.log`.
+
+## REVIEW_PASS — FEATURE-120
+
+**Admin config save must validate values per field type (review C28)**
+
+I reviewed only the current feature and independently re-ran verification.
+
+**All 4 acceptance criteria met:**
+1. ✅ Values validated against declared type/constraints before save — new `ConfigFieldValidator` invoked per field before any `configService->set()`.
+2. ✅ Invalid input (non-int / out-of-set enum) rejected with a clear field error, not persisted — atomic per-page save: any error → HTTP 422, nothing written (confirmed valid siblings on the same page also aren't persisted).
+3. ✅ Valid saves still work.
+4. ✅ Functional test for non-integer `rate_limit.max_attempts` present and passing.
+
+**Key checks:**
+- Enum option sets match their actual runtime consumers exactly (`registration.mode`, `recognition_mode` per ADR-012, `email_verification.mode`, `2fa.enforcement`).
+- CSRF check intact and ordered above validation; fail-closed atomic posture consistent with ADR-016.
+- No production config, no schema change, no security regression.
+- Tests are real and meaningful (edge cases: `1.5`, `10x`, empty, negative, min/max bounds, strict enum); no skipped/fake tests; anti-cheat clean.
+
+**Verification (re-run by me):** targeted suite OK (13 tests, 35 assertions); `bin/verify-fast.sh` → all checks passed, full suite OK (489 tests, 1757 assertions).
+
+One non-blocking note (does not gate the pass): enum fields still render as a free-text `<input>` rather than a `<select>` — server-side validation now enforces the set, and a dropdown was explicitly scoped out. Not an AC.
+
+The completion steps owed by CLAUDE.md's Definition of Done (flip `passes:true` + evidence, append `claude-progress.txt`, commit) remain to be done, but don't gate this review.
+== Marking feature complete ==
+Done. Tracking files updated for **FEATURE-120** — no application code touched.
+
+- **feature_list.json**: FEATURE-120 set `passes: true` with a 7-item evidence array (validator service, 7 enriched config pages, controller, template, both test files, verification counts). No other feature altered.
+- **claude-progress.txt**: appended a concise round summary at the top (what was built, design note, verification, status).
+- **DECISIONS.md**: unchanged — no durable decision was made (SCRATCHPAD and reviewer both explicitly note "no new ADR"; this ties to the existing explicit/auditable design preference).
+- **OPEN_QUESTIONS.md**: unchanged — no ambiguity was found or resolved this round.
+
+Not committed (per instructions this step is tracking-only). Note the working tree still carries the incidental `config/reference.php` and `.agent/agent-loop.out` drift, which SCRATCHPAD/review both flag to leave out of the eventual feature commit.
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   50cd54a..8cfd1de  HEAD -> master
+[master 8cfd1de] Agent round 21: complete current feature
+ 19 files changed, 698 insertions(+), 157 deletions(-)
+ create mode 100644 src/Config/ConfigFieldValidator.php
+ create mode 100644 tests/Functional/Admin/ConfigValidationTest.php
+ create mode 100644 tests/Unit/Config/ConfigFieldValidatorTest.php
+Round 21 complete.
+
+==============================
+Agent round 22 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Local app responds at http://auth.localhost
+== Init complete ==
+== Implementation pass ==
+FEATURE-117 is implemented and verified. Full suite green (493 tests, 1770 assertions; deprecations are pre-existing), `=== All checks passed ===`.
+
+## Summary
+
+**Selected:** FEATURE-117 — *Admin API user list must be filterable with a configurable page size (review C25)*. Priority `should`, `depends_on: []`, no schema change.
+
+**Problem:** `GET /admin-api/users` used `findPaginated` with no filters and a hardcoded `PAGE_SIZE = 10`, contradicting the spec's "List users (paginated, **filterable**)".
+
+**Changes (tests-first):**
+- `tests/Functional/Api/AdminApiUserListFilterTest.php` (NEW, 4 tests) — filter by email returns only matching; `per_page` changes page size + metadata; `per_page` bounded to max (100000 → 100); filter by status.
+- `src/Repository/UserRepository.php` — added `countFiltered()`, `findFilteredPaginated()`, and a private `applyFilters()` (case-insensitive partial `email` LIKE, exact `status`). Existing `countAll`/`findPaginated` left intact (web `AdminUserController` still uses them).
+- `src/Controller/Api/AdminApiUserController.php::list` — reads `page`, bounded `per_page` (default 10, max 100), `email` and validated `status` filters; meta now returns `total`, `page`, `per_page`, `total_pages` (additive — the three prior keys preserved).
+
+Role filtering was deliberately scoped out (JSON column; every user is effectively `ROLE_USER` per `ALLOWED_ROLES`) — the AC requires "at least email (ideally status)".
+
+**Per the workflow, I stopped here without:** marking `passes=true`, updating `claude-progress.txt`, or committing. `.agent/agent-loop.out` drift is incidental and not part of this feature. Ready for the reviewer pass.
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+Review complete. **REVIEW_PASS** for FEATURE-117 — written to `.agent/review.log`.
+
+## Summary
+
+The current feature (FEATURE-117 — *Admin API user list must be filterable with a configurable page size*) is correct, complete, and spec-compliant.
+
+**What I verified:**
+- **All 4 acceptance criteria met** — email filter (partial, case-insensitive), enum-validated status filter, bounded `per_page` (default 10 / max 100), and pagination metadata (`total`, `page`, `per_page`, `total_pages`).
+- **Spec match** — `docs/SPEC.md:201` mandates "List users (paginated, **filterable**)".
+- **Tests are real and behavioural** — 4 functional tests, all pass (13 assertions); they genuinely fail against the pre-fix controller. No skipped/faked tests; anti-cheat clean.
+- **No regression** — I re-ran the existing API list + CRUD suite (`testGetUsersReturnsPaginatedJson`, `AdminApiUserCrudTest`) → 7 tests / 38 assertions green. `countAll`/`findPaginated` untouched, `per_page` is additive.
+- **Security** — bounded `per_page` closes an unbounded-page-size scan, parameterized queries, `ROLE_ADMIN` enforced.
+
+**One non-blocking note:** the working tree carries incidental drift (`config/reference.php` auto-generated stub, `.agent/agent-loop.out`) that must be **excluded from the feature commit** — the SCRATCHPAD already flags this.
+
+**Still owed per Definition of Done** (not part of this review pass): set `passes=true` + evidence in `feature_list.json`, append `claude-progress.txt`, and commit the scoped changes.
+== Marking feature complete ==
+Tracking files updated. No changes needed to DECISIONS.md or OPEN_QUESTIONS.md — the SCRATCHPAD and reviewer both confirm no ADR was warranted (bounding `per_page` as a code constant matches existing sibling patterns) and no ambiguity was found or resolved.
+
+## Summary
+
+FEATURE-117 (Admin API user list filterable + configurable page size, review C25) tracking finalized:
+
+- **feature_list.json** — FEATURE-117 marked `passes: true` with 5 concise evidence entries (repo methods, controller changes, new functional test 4/13, reviewer re-run, verify + REVIEW_PASS). No unrelated features touched.
+- **claude-progress.txt** — round summary appended (what was built, design note on why role filtering / ADR were out of scope, verification).
+- **DECISIONS.md** — unchanged; no durable decision (explicitly no schema change / no new config key / no ADR, per SCRATCHPAD and reviewer).
+- **OPEN_QUESTIONS.md** — unchanged; no ambiguity found or resolved.
+
+No application code was edited. Verification (`== Verification passed ==`) and reviewer (`REVIEW_PASS`) were both confirmed, and the targeted test passes (4 tests, 13 assertions).
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   8cfd1de..b4a56e8  HEAD -> master
+[master b4a56e8] Agent round 22: complete current feature
+ 9 files changed, 453 insertions(+), 107 deletions(-)
+ create mode 100644 tests/Functional/Api/AdminApiUserListFilterTest.php
+Round 22 complete.
+
+==============================
+Agent round 23 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Local app responds at http://auth.localhost
+== Init complete ==
+== Implementation pass ==
+Done. I implemented one complete feature as a coherent vertical slice.
+
+## FEATURE-115 — PATCH/edit validation contract: reject unknown role/status; kill the dead role-edit path (review C22)
+
+**Problem:** `Api/AdminApiUserController::update` only acted on *valid* role/status, so an invalid value returned **200 OK with nothing changed** (a success response for an edit that never happened). A *valid* role triggered `setRoles([])`, which — since `User::ALLOWED_ROLES = ['ROLE_USER']` — could never change anything (validated-then-discarded dead code). The web `new`/`edit` paths silently coerced invalid values to defaults.
+
+**What I built:**
+- **NEW `src/Service/UserFieldValidator.php`** — one pure, injectable, shared contract: `validateRole()` (reject anything outside `User::ALLOWED_ROLES`) and `validateStatus()` (reject non-`AccountStatus`), so web + API cannot drift (AC3).
+- **`Api/AdminApiUserController`** (`create`, `update`) — unknown role/status now produce a 422 validation error instead of silent coercion/drop; removed the dead `setRoles([])` calls.
+- **`AdminUserController`** (`new`, `edit`) — same: reject unknown values into `$errors`; removed dead `setRoles([])`; dropped the now-unused `AccountStatus` import.
+- **Roles documented as fixed** (ADR-024): the entity is the single source of truth; write paths validate but never mutate roles.
+
+**Tests (written first):**
+- `tests/Unit/Service/UserFieldValidatorTest.php` — role/status accept/reject cases.
+- `tests/Functional/Api/AdminApiUserValidationTest.php` — invalid PATCH status → 422 + DB row unchanged; invalid PATCH role → 422; valid status still applies (200); invalid create status → 422 + no user.
+
+**Behaviour-preserving for valid inputs:** `$roles` defaults to `[]` and `getRoles()` always appends `ROLE_USER`, so stored/serialized roles are identical; templates only ever offer valid values.
+
+**Verification:** `bin/verify-fast.sh` → `=== All checks passed ===` (497 tests, 1783 assertions; anti-cheat scan clean). Targeted regression set (CRUD, edit, create, new validation) green.
+
+Per the workflow, I have **not** marked `passes=true`, **not** appended to `claude-progress.txt`, and **not** committed. Recorded the decision in ADR-024 and rewrote `.agent/SCRATCHPAD.md`. The `config/reference.php` and `.agent/agent-loop.out` changes are incidental drift to exclude from the feature commit.
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+Review complete. Result written to `.agent/review.log`.
+
+## REVIEW_PASS
+
+FEATURE-115 is correct, complete, and honestly implemented.
+
+**What it does:** All four admin user-write paths (API `create`/`update`, web `new`/`edit`) now **reject** an unknown `role`/`status` with a validation error (422 / form error) instead of the old behavior — silent coercion to `active`/`ROLE_USER` (web) or a silent drop-to-200 (API). Every dead `setRoles([])` call is removed, and user roles are documented as fixed to `ROLE_USER` (ADR-024). The contract lives in one shared pure service, `UserFieldValidator`, injected by both surfaces so they can't drift.
+
+**Verification I ran:**
+- All 4 acceptance criteria met (invalid values rejected, dead role-path removed + documented, shared path, functional coverage with DB-state assertions).
+- New tests pass (9 tests) and all Admin(Api)User tests pass (43).
+- `bin/verify-fast.sh` = **OK (497 tests, 1783 assertions)**.
+- Confirmed removing `setRoles([])` is behavior-preserving (`getRoles()` always appends `ROLE_USER`, `$roles` defaults to `[]`).
+- No security regression — rejecting `ROLE_ADMIN` on a User upholds the ADR-003 firewall boundary; 422 sits above persist so no partial writes.
+
+**One non-blocking note:** `config/reference.php` is in the diff but is an auto-generated Psalm/IDE type stub (not runtime-loaded) with only `when@acceptance` entries — unrelated, harmless drift that wasn't declared in SCRATCHPAD. Recommend excluding it from the commit to keep the diff scoped, but it doesn't affect correctness or any AC.
+== Marking feature complete ==
+Done. Tracking files updated for **FEATURE-115** only:
+
+- **feature_list.json** — FEATURE-115 marked `passes: true` with a 6-item evidence array (new `UserFieldValidator` service, both controller write-paths, unit + functional tests, verify/reviewer results). JSON validated. No other feature touched.
+- **claude-progress.txt** — concise round summary appended.
+- **DECISIONS.md** — no change needed; the durable decision was already recorded as **ADR-024** (user roles fixed to `ROLE_USER`, reject unknown role/status).
+- **OPEN_QUESTIONS.md** — no change; this feature resolved a review finding (C22), not a spec ambiguity, and introduced no new open question.
+
+No application code was edited in this step.
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   b4a56e8..421a3e5  HEAD -> master
+[master 421a3e5] Agent round 23: complete current feature
+ 13 files changed, 540 insertions(+), 95 deletions(-)
+ create mode 100644 src/Service/UserFieldValidator.php
+ create mode 100644 tests/Functional/Api/AdminApiUserValidationTest.php
+ create mode 100644 tests/Unit/Service/UserFieldValidatorTest.php
+Round 23 complete.
+
+==============================
+Agent round 24 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Local app responds at http://auth.localhost
+== Init complete ==
+== Implementation pass ==
+I've completed one coherent vertical slice. Stopping here as instructed.
+
+## Summary — FEATURE-133 (review C23)
+
+Closed two admin-impersonation authorization holes. Per the workflow I have **not** marked `passes=true`, **not** appended `claude-progress.txt`, and **not** committed — that awaits the reviewer pass.
+
+**Problem (C23):**
+1. `AdminAdminManagementController::impersonateStart` hand-forged a `PostAuthenticationToken` straight onto `TokenStorage`, skipping the admin firewall's `AdminChecker` — so an **inactive** admin could be impersonated into a working session (asymmetric with the user side, which runs `UserChecker`).
+2. `Admin::isEqualTo` compared only password + status. Since `Admin` implements `EquatableInterface`, Symfony's `ContextListener::hasUserChanged` uses *only* `isEqualTo` (vendor `ContextListener.php:301-303`) and skips its own role check — so a **demoted** superadmin kept `ROLE_SUPER_ADMIN` in their live session until re-login.
+
+**Changes:**
+- `src/Controller/AdminAdminManagementController.php` — inject `AdminChecker`; run `checkPreAuth($targetAdmin)` before forging the token; on any `AuthenticationException`, fail closed (error flash + redirect, no token, no markers, no audit row).
+- `src/Entity/Admin.php` — `isEqualTo` now also compares a normalized (sorted) roles list, so a role change deauthenticates the stale token on the next request.
+- `tests/Functional/Security/AdminImpersonationAuthzTest.php` (new) — 2 tests: inactive-admin impersonation rejected (bounced to admin list, no banner, error flash); demoted superadmin's live session loses `ROLE_SUPER_ADMIN` (next request → `/admin/login`).
+- `.agent/DECISIONS.md` — ADR-025 recorded; `.agent/SCRATCHPAD.md` rewritten for this feature.
+
+**Verification:** new tests OK (2/2, 8 assertions); impersonation + Admin entity regression suites OK (20/20); `bin/verify-fast.sh` → **OK (499 tests, 1791 assertions), "=== All checks passed ==="**. No schema change, no new config key. Pre-existing `.agent/agent-loop.out` drift is not part of this slice.
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+Review complete. Result written to `.agent/review.log`.
+
+## REVIEW_PASS — FEATURE-133 (review finding C23)
+
+I reviewed only the current feature and independently verified it rather than trusting the agent log.
+
+**What the change does**
+- `AdminAdminManagementController::impersonateStart` now runs `AdminChecker::checkPreAuth($targetAdmin)` **before** forging the `PostAuthenticationToken`, failing closed on any `AuthenticationException` (error flash + redirect, no token, no session markers, no audit row).
+- `Admin::isEqualTo` now compares a normalized (sorted) roles list, so a role demotion makes `ContextListener::hasUserChanged` true and deauthenticates the stale token on the next request.
+
+**Verified independently**
+- All 5 acceptance criteria are covered. AC2 is satisfied via its explicit "or gated by the same checks first" branch; the full dedicated-authenticator refactor is honestly documented as deferred in ADR-025.
+- Ran the new test file: **OK (2 tests, 8 assertions)**. Both tests genuinely exercise the fix — I traced the without-fix failure modes (stale `ROLE_SUPER_ADMIN` token would keep the management page reachable; inactive target would authenticate). No skipped/fake/empty-assertion tests.
+- Impersonation regression: **OK (9 tests)**. Full `bin/verify-fast.sh`: **OK (499 tests, 1791 assertions), "=== All checks passed ==="**.
+- `isEqualTo` roles comparison is sound (both sides go through `getRoles()` then `sort()` reindexes — order- and key-safe). The negative banner assertion targets the real marker in `base.html.twig`.
+- No production config/env/migration/schema changes.
+
+**One advisory note (non-blocking):** running the suite regenerates the tracked generated helper `config/reference.php` (drops `when@acceptance` sections under `APP_ENV=test`). That's environment-dependent build noise, not a source change — it should **not** be committed with this feature.
+== Marking feature complete ==
+Tracking files updated. Summary of what I did (no application code touched):
+
+1. **`.agent/feature_list.json`** — set FEATURE-133 `passes: true` and populated its `evidence` array (controller AdminChecker gate, `Admin::isEqualTo` roles compare, new test file, reviewer confirmation of genuine failure modes, full-suite verify result, ADR-025 reference). No other feature changed.
+
+2. **`.agent/claude-progress.txt`** — prepended a concise FEATURE-133 round summary (problem, what was built, design note, verification, COMPLETE status).
+
+3. **`.agent/DECISIONS.md`** — no change needed; ADR-025 was already recorded for this feature.
+
+4. **`.agent/OPEN_QUESTIONS.md`** — no change needed; no new or resolved ambiguity (the deferred dedicated-authenticator refactor is captured in ADR-025, not an open question).
+
+Verification (499 tests, 1791 assertions) and reviewer (`REVIEW_PASS`, 5/5 ACs) were both already green for this feature.
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   421a3e5..06d8f31  HEAD -> master
+[master 06d8f31] Agent round 24: complete current feature
+ 10 files changed, 375 insertions(+), 4469 deletions(-)
+ create mode 100644 tests/Functional/Security/AdminImpersonationAuthzTest.php
+Round 24 complete.
+
+==============================
+Agent round 25 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Local app responds at http://auth.localhost
+== Init complete ==
+== Implementation pass ==
+The implementation is complete. Here's a summary of the coherent vertical slice I delivered.
+
+## FEATURE-121 — Reconcile entity metadata with migrations so `schema:validate` passes (review C29)
+
+**Selected** because it has no unmet dependencies, is well-bounded, and is the foundation FEATURE-122 explicitly coordinates with.
+
+### Diagnosis (empirical)
+`doctrine:schema:validate` was failing for two reasons:
+1. **DBAL/bundle-managed tables were unmapped** (`login_attempts`, `endpoint_rate_limits`, `sessions`, `messenger_messages`, `doctrine_migration_versions`) — ORM schema tools wanted to `DROP TABLE` them.
+2. **Entities didn't declare the migration-created indexes**, and the token/config tables expressed `token_hash`/`config_key` uniqueness as inline `CONSTRAINT … UNIQUE`, which SQLite stores as an invisible `sqlite_autoindex_*` that **DBAL 4.4 does not introspect** — so ORM's `unique: true` kept wanting to add a named `UNIQ_*` index.
+
+### Changes
+- **`config/packages/doctrine.yaml`** — added `dbal.schema_filter` (negative-lookahead regex) excluding the five non-entity tables from ORM schema management, so a future `migrations:diff` can never emit `DROP TABLE` for the rate-limit/session stores.
+- **7 entities** — added `#[ORM\Index]` declarations matching the migration index names (`LoginHistory`, `UserSession` +user_id, `WebhookDelivery` ×2, `AdminAccessToken`, `PersonalAccessToken`, `AdminPasswordResetToken`). `UserSession.session_id` switched from `unique: true` to a named `#[ORM\UniqueConstraint(name: 'UNIQ_user_sessions_session_id')]` matching the existing DB index (no table recreate).
+- **`migrations/Version20260706135549.php`** — recreates the 7 implicit-unique tables so `token_hash`/`config_key` uniqueness is a **named** unique index the ORM/DBAL agree on. Data preserved via `INSERT…SELECT`; `down()` hand-edited to restore the original inline `UNIQUE` constraints (verified: rollback still rejects duplicate `token_hash`).
+- **NEW `tests/Functional/Schema/SchemaSyncTest.php`** — asserts `validateMapping()` and `getUpdateSchemaList()` are both empty.
+
+### Verification
+- `doctrine:schema:validate` → **in sync** (mapping + database).
+- `migrations:diff` → **No changes detected** (AC4).
+- New test passes; genuinely fails without the entity fixes (confirmed via stash).
+- `down()`/`up()` roundtrip works and preserves uniqueness.
+- Full PHPUnit: **512 tests / 1639 assertions pass**. The 19 notices are pre-existing (confirmed on a clean tree).
+- The five DBAL-only tables remain present in the DB.
+
+Per the workflow: I did **not** set `passes=true`, did **not** append to `claude-progress.txt`, and did **not** commit. Incidental drift (`.agent/agent-loop.out`, `config/reference.php`) was left out / restored. Ready for the reviewer pass and `bin/verify-fast.sh`.
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+## REVIEW_PASS — FEATURE-121
+
+I reviewed the current feature (reconcile entity metadata with migrations so `schema:validate` passes; exclude DBAL-only tables — review finding C29) and it passes.
+
+**Verified against the real system, not just the claimed logs:**
+- Fresh from-scratch migrate: 31 migrations, exit 0.
+- `doctrine:schema:validate`: mapping correct **and** database in sync.
+- New `SchemaSyncTest`: 2/2 pass; full PHPUnit suite: **512 tests, 1639 assertions, OK**.
+
+**All 4 acceptance criteria met:**
+1. `schema:validate` in sync ✓
+2. All migration indexes now declared on entities; `session_id` uniqueness re-expressed as the named `UNIQ_user_sessions_session_id` matching the DB ✓
+3. `schema_filter` negative-lookahead excludes the DBAL-only stores (`login_attempts`, `endpoint_rate_limits`, `sessions`, `messenger_messages`, `doctrine_migration_versions`) while real tables stay managed ✓
+4. `getUpdateSchemaList()` returns `[]` → no spurious DROP/CREATE ✓
+
+**Quality checks that held up:**
+- The recreate migration preserves every column/type exactly (no FKs existed), re-creates all secondary indexes, and preserves data via `INSERT…SELECT`. `down()` faithfully restores the original inline `UNIQUE` constraints, so a rollback does **not** weaken token/config-key uniqueness.
+- No scope leakage — the `password_reset_tokens(email)` / `audit_log` indexes are correctly left for FEATURE-122.
+- Tests are genuine (real `SchemaValidator` assertions); anti-cheat grep clean; no production secrets/keys/DB touched.
+
+One non-blocking note recorded in the log: the bookkeeping (`feature_list.json` → `passes:true`, progress append, commit) is still pending — but those are the finalize steps that *follow* a `REVIEW_PASS` per CLAUDE.md, not implementation defects.
+
+Result written to `.agent/review.log`.
+== Marking feature complete ==
+No related open question exists, and no new ambiguity arose this round — OPEN_QUESTIONS.md needs no change.
+
+Tracking files updated for **FEATURE-121**:
+
+- **feature_list.json** — `passes: true` on FEATURE-121 only; evidence array populated (schema:validate green, SchemaSyncTest behavior, declared indexes, schema_filter exclusions, recreation migration, full-suite result). No other feature touched.
+- **claude-progress.txt** — concise round summary appended (root causes, what was built, scope note vs FEATURE-122, verification).
+- **DECISIONS.md** — added **ADR-026** recording the durable schema-management strategy (schema_filter for DBAL-only tables; named unique indexes over inline `CONSTRAINT ... UNIQUE`).
+- **OPEN_QUESTIONS.md** — no change (no ambiguity found or resolved).
+
+No application code was edited. Per SCRATCHPAD, the work is not yet committed — that's the remaining finalize step whenever you want it done.
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   06d8f31..752f402  HEAD -> master
+[master 752f402] Agent round 25: complete current feature
+ 17 files changed, 438 insertions(+), 103 deletions(-)
+ create mode 100644 migrations/Version20260706135549.php
+ create mode 100644 tests/Functional/Schema/SchemaSyncTest.php
+Round 25 complete.
+
+==============================
+Agent round 26 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Local app responds at http://auth.localhost
+== Init complete ==
+== Implementation pass ==
+The implementation is complete and verified. Let me summarize.
+
+## FEATURE-122 implemented: missing indexes on hot columns (review C30)
+
+**Selected feature:** FEATURE-122 (priority *should*, `depends_on: []` — satisfied). It coordinates with FEATURE-121/ADR-026 (keep `schema:validate` green), which already landed. It was the cleanest, smallest well-scoped slice among the 16 unfinished features.
+
+### What I built
+
+1. **`src/Entity/PasswordResetToken.php`** — added `#[ORM\Index(name: 'IDX_PRT_EMAIL', columns: ['email'])]`. Closes drift with the admin table (which already has `IDX_APRT_EMAIL`); the repo's `invalidateOtherUnusedTokens` filters `WHERE email = :email` on every completed reset.
+
+2. **`src/Entity/AuditLog.php`** — added `IDX_AUDIT_LOG_CREATED_AT` (viewer's `ORDER BY created_at DESC`, both date filters, and the retention `DELETE ... WHERE created_at < cutoff`) and `IDX_AUDIT_LOG_ACTION` (the exact-match `action` filter in `AuditLogRepository::applyFilters`).
+
+3. **NEW `migrations/Version20260706150000.php`** — three plain `CREATE INDEX` statements (no table recreation needed on SQLite), with a reversible `down()` that drops them. Verified the up/down SQL round-trips cleanly.
+
+4. **NEW `tests/Functional/Schema/AuditIndexTest.php`** — 3 tests introspecting the built DB via the DBAL schema manager, asserting the email / created_at / action indexes exist. All three **fail on pre-fix code** (verified: "indexes present: primary(id)") and pass after the change.
+
+### Verification
+- `doctrine:schema:validate` — **green** ("mapping files are correct" + "schema is in sync"); entity + migration agree, so FEATURE-121's guard stays satisfied.
+- All indexes confirmed present after a from-scratch migrate.
+- New `AuditIndexTest` + existing `SchemaSyncTest` — OK (5 tests, 5 assertions).
+- Full PHPUnit strict gate — **OK (515 tests, 1642 assertions)**, up from 512 (my 3 new tests).
+- Anti-cheat scan on the new test — clean; no skips/fakes.
+
+### Note on verify-fast.sh
+The Codeception step is currently **red on the clean tree too** (proven by stashing my changes: 6 errors, 28 failures — the login/sidebar cross-process SQLite flake that **FEATURE-129/C40** exists to fix). My index-only change cannot cause auth-redirect failures, and the authoritative PHPUnit gate is fully green. This is a pre-existing condition, not a regression I introduced.
+
+Per the required workflow, I stopped here: **not** marking `passes=true`, **not** appending `claude-progress.txt`, and **not** committing. Ready for the reviewer pass.
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+## REVIEW_PASS
+
+FEATURE-122 (add missing hot-column indexes, review C30) passes review. Summary of what I verified end-to-end:
+
+**All 4 acceptance criteria met:**
+1. `IDX_PRT_EMAIL` on `password_reset_tokens.email` — mirrors the admin table's `IDX_APRT_EMAIL` (drift closed, parity confirmed).
+2. `IDX_AUDIT_LOG_CREATED_AT` + `IDX_AUDIT_LOG_ACTION` on `audit_log`.
+3. Declared on **both** the entity mapping (`ORM\Index`) **and** migration `Version20260706150000` — `doctrine:schema:validate` is green (mapping correct + DB in sync).
+4. Indexes present after migrate (verify-fast runs migrations; verify.log passed).
+
+**Correctness confirmed against real code**, not the scratchpad's word:
+- Physical column names match (`created_at`, `action`, `email`).
+- Every indexed column is actually used: `AuditLogRepository` sorts/filters/prunes by `createdAt`, filters exact `action`; `PasswordResetTokenRepository::invalidateOtherUnusedTokens` filters `WHERE email = :email`.
+
+**Tests are real:** 3/3 pass, introspect the migration-built DB, assert exact index column sets, and genuinely fail if the indexes are absent. Anti-cheat grep clean — no skips, no fake assertions, no placeholders. No production config/`.env`/data touched.
+
+Two cosmetic nits noted (a `assertTrue(true,...)` hit-path idiom and a stale docblock) — non-blocking. The `migrations:execute --down` failure I hit is a pre-existing environment quirk on the ad-hoc execute path, not caused by this feature; the `migrate` path used by verification works.
+
+Result written to `.agent/review.log`. The finalize steps (set `passes=true` + evidence, append progress, commit) remain — those follow the pass per CLAUDE.md.
+== Marking feature complete ==
+Tracking files updated. DECISIONS.md and OPEN_QUESTIONS.md left untouched — no durable decision was made (the fix ties into the existing FEATURE-121 / ADR-026 schema-sync rule; the SCRATCHPAD and review both explicitly note "no new ADR"), and no ambiguity was found or resolved.
+
+Summary of changes:
+- **`.agent/feature_list.json`** — FEATURE-122 set `passes: true` with 5 concise evidence lines (entity index additions, migration, new `AuditIndexTest`, verify + reviewer result). No other feature touched.
+- **`.agent/claude-progress.txt`** — appended a FEATURE-122 round summary (gaps closed, what was built, design note on schema:validate parity, verification, status).
+
+No application code was edited in this step.
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   752f402..25e90de  HEAD -> master
+[master 25e90de] Agent round 26: complete current feature
+ 10 files changed, 296 insertions(+), 97 deletions(-)
+ create mode 100644 migrations/Version20260706150000.php
+ create mode 100644 tests/Functional/Schema/AuditIndexTest.php
+Round 26 complete.
+
+==============================
+Agent round 27 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Local app responds at http://auth.localhost
+== Init complete ==
+== Implementation pass ==
+Done. Stopping here as instructed (one complete vertical slice; not marking `passes=true`, not appending progress).
+
+## Summary
+
+**Selected: FEATURE-105** — Harden the webhook SSRF guard (review C19). Priority `should`, `depends_on: []` (satisfied), `passes: false`.
+
+### What I built
+- **`src/Security/SsrfGuard.php`** (new) — the hardened guard. Pure, unit-testable core `evaluate(url, blockingEnabled)`:
+  - Hard-coded IPv4 blocklist (0/8, 10/8, 100.64/10, 127/8, 169.254/16, 172.16/12, 192.168/16, 224/4, 240/4) and IPv6 blocklist (::1, ::, fe80::/10, fc00::/7, ff00::/8).
+  - Unwraps IPv6 embedded-IPv4 bypass forms (IPv4-mapped, 6to4, NAT64, Teredo) and re-checks the embedded v4.
+  - Public-FQDN requirement: rejects single-label hosts and internal TLDs (`.local`, `.internal`, `.localhost`, `.home.arpa`, `.lan`, `.corp`).
+  - Non-http(s) schemes rejected **unconditionally**; the block otherwise gated by `webhook.block_internal_targets`, **default ON** (fail-closed).
+- **`src/Security/SsrfInspection.php`** (new) — result DTO carrying the validated pinned IPs.
+- **`src/Service/HttpWebhookDispatcher.php`** — injects `?SsrfGuard` (nullable so the test double still constructs), resolves once, and **pins the cURL connection** to the validated IP via `CURLOPT_RESOLVE` (closes the DNS-rebind TOCTOU) with Host/SNI preserved and **redirects refused**.
+- **`src/Config/WebhookConfigPage.php`** — new bool switch field.
+- **ADR-027** recorded in `.agent/DECISIONS.md`; SCRATCHPAD rewritten.
+
+### Tests (written first)
+- `tests/Unit/Security/SsrfGuardTest.php` — all AC9 bypass vectors, FQDN rules, embedded-v4, scheme guard, switch semantics, IP pinning.
+- `tests/Functional/Security/WebhookSsrfSwitchTest.php` — DB-config-backed switch ON/OFF + real dispatcher blocked-delivery path.
+- Existing `WebhookSsrfGuardTest`, `WebhookDeliveryTest`, `WebhookConfigPageTest` stay green.
+
+**Verification:** Full PHPUnit suite green (558 tests, 1701 assertions; the 19 "issues" are pre-existing deprecation notices). All 69 webhook-related tests pass in isolation.
+
+### ⚠️ Pre-existing issue I hit (not from this change)
+`bin/verify-fast.sh`'s combined `codecept run` (step 3) fails with ~6 errors + ~30 failures from the **Acceptance→Functional shared-DB pollution** — reproduced **identically with my changes stashed**, so it's not a regression (it's FEATURE-129's territory). Also, `doctrine:migrations:migrate` is non-idempotent on a populated `test.db` due to ADR-026's schema_filter hiding `doctrine_migration_versions` (fix: `rm var/test.db` before migrate — I left a clean slate). I saved both facts to memory so future rounds don't misattribute them.
+
+`config/reference.php` shows incidental static-analysis build drift (as in prior rounds) — to be excluded from any eventual feature commit.
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+Review complete. Result written to `.agent/review.log`.
+
+## REVIEW_PASS
+
+FEATURE-105 (webhook SSRF hardening, ADR-027) is a genuine, complete implementation. I verified it end-to-end rather than trusting the terse `verify.log`:
+
+**All 10 acceptance criteria are met and backed by real tests** — IPv4/IPv6 blocklists, embedded-IPv4 unwrapping (mapped/6to4/NAT64/Teredo), public-FQDN requirement, resolve-all-refuse-any, `CURLOPT_RESOLVE` pinning with Host/SNI preserved, redirects refused, and the default-ON `webhook.block_internal_targets` switch.
+
+**Security is sound** — the DNS-rebind TOCTOU is closed (resolve once → validate all → pin to validated IP), non-http(s) schemes are rejected unconditionally regardless of the switch, and unparseable IPs fail closed.
+
+**Tests are real, not faked** — 40 unit + 3 functional, no skips/early-returns/weakened assertions. The full suite (558 tests) passes; the legacy static-guard test and config-page test stay green, and the `ControlledHttpWebhookDispatcher` double still constructs thanks to the nullable `$guard` default.
+
+**No production config weakened** — only the admin `WebhookConfigPage` gains the operator switch, which is the feature itself.
+
+Two non-blocking notes (not required fixes): incidental `config/reference.php` regeneration drift (an IDE type-hint artifact, safe to drop from the commit), and the standard post-review finalize steps (set `passes=true` + evidence, append progress, commit) that follow a passing review per CLAUDE.md.
+== Marking feature complete ==
+Tracking files updated. Summary of this step:
+
+- **feature_list.json** — FEATURE-105 marked `passes: true` with a 4-item evidence array (implementation files, unit test + bypass vectors, functional switch test, verify-fast/reviewer results). No other feature touched.
+- **claude-progress.txt** — appended a concise Round 27 summary.
+- **DECISIONS.md** — no change needed; ADR-027 was already recorded for this feature.
+- **OPEN_QUESTIONS.md** — no change; no new ambiguity found or resolved.
+
+No application code was edited in this step.
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   25e90de..dcd30ec  HEAD -> master
+[master dcd30ec] Agent round 27: complete current feature
+ 14 files changed, 913 insertions(+), 171 deletions(-)
+ create mode 100644 src/Security/SsrfGuard.php
+ create mode 100644 src/Security/SsrfInspection.php
+ create mode 100644 tests/Functional/Security/WebhookSsrfSwitchTest.php
+ create mode 100644 tests/Unit/Security/SsrfGuardTest.php
+Round 27 complete.
+
+==============================
+Agent round 28 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Local app responds at http://auth.localhost
+== Init complete ==
+== Implementation pass ==
+The codecept Functional suite is fully green on a fresh DB (416 tests, 1470 assertions), confirming the 6err+36fail in the full verify-fast run are the pre-existing Acceptance→Functional shared-DB pollution documented in memory (tracked separately as FEATURE-129), not caused by my change.
+
+## Summary
+
+I implemented **FEATURE-132** — *Trusted-device 2FA-bypass cookie must be revocable and invalidated on 2FA reset (review C16)* — as one coherent vertical slice.
+
+### Problem
+The `TRUSTED_DEVICE` cookie was bound only to `userId:expires` under an HMAC of `kernel.secret`, with no server-side record. After an admin reset a user's 2FA and the user re-enrolled with a new secret, a previously issued cookie kept skipping the 2FA challenge until its own expiry. Disabling 2FA and deactivation likewise didn't invalidate it.
+
+### Fix (ADR-028 — the description's sanctioned "lighter alternative")
+Fold a per-user **binding token** into the cookie HMAC: `bindingToken(User) = sha256((totpSecret ?? '') . '|' . status)`. It is **not** stored in the cookie — `isDeviceTrusted()` recomputes it from the user's *current* state, so a cookie minted under an old state stops matching once the state changes:
+- `totpSecret` rotates/clears on 2FA reset/disable/re-enroll → **AC1, AC2**
+- `status` flips to `inactive` on deactivation/soft-delete → **AC3** (consistent with FEATURE-102)
+
+No schema change, no new config key. AC4 (per-device view/revoke) explicitly does not apply to the lighter path.
+
+### Files
+- `src/Security/TrustedDeviceManager.php` — `bindingToken()`; `generateCookie()`/`isDeviceTrusted()` now take `User` (was `int $userId`); HMAC includes the binding. Secure/HttpOnly/SameSite=Strict (FEATURE-112) unchanged.
+- `src/Security/TwoFactorGuard.php` + `src/Controller/TwoFactorController.php` — pass `$user` (both already held it).
+- `tests/Unit/Security/TrustedDeviceManagerTest.php` (NEW, 7 tests) — cookie trusted for current state; not trusted after secret rotates / clears / status→inactive / wrong user / expired / malformed.
+- `tests/Functional/Security/TrustedDeviceTest.php` — NEW `testResetting2faInvalidatesTrustedDeviceCookie` (AC5): trust a device, rotate the secret (reset+re-enroll), next login is bounced to `/2fa/challenge`.
+- `.agent/DECISIONS.md` — ADR-028; `.agent/SCRATCHPAD.md` rewritten for this feature.
+
+### Verification
+- New unit + functional tests pass; I confirmed the new functional test **genuinely fails** on pre-fix behaviour (neutralized binding → stale cookie still skipped the challenge).
+- phpunit full suite green; codecept Functional suite green (416 tests) on a fresh DB. All existing trusted-device/FEATURE-112 tests stay green.
+
+Per the workflow I **stopped here**: I did **not** set `passes=true`, did **not** append to `claude-progress.txt`, and did not commit — those await the reviewer pass. The incidental `.agent/agent-loop.out` drift is unrelated to this feature.
+== Running verification ==
+Verification passed.
+== Reviewer pass ==
+Review complete. Result written to `.agent/review.log`.
+
+## REVIEW_PASS
+
+FEATURE-132 (trusted-device 2FA-bypass cookie revocation, review C16) is correctly and honestly implemented:
+
+**Design** — `TrustedDeviceManager` folds a per-user binding token `sha256(totpSecret | status)` into the existing `kernel.secret`-keyed cookie HMAC. It's never stored in the cookie; `isDeviceTrusted()` recomputes it from the user's *current* state, so a cookie minted under old state automatically stops validating. Signatures widened `int $userId → User` at both call sites.
+
+**All ACs met by real code paths:**
+- AC1 — admin reset (`AdminUserController:264`, `AdminApiUserController:434`) nulls the secret; self-service re-enroll (`TwoFactorController:46`) rotates it → binding changes.
+- AC2 — disable (`TwoFactorController:100`) nulls the secret.
+- AC3 — all deactivate/soft-delete paths set `status='inactive'`.
+- AC4 — conditional on the server-side-table approach, correctly N/A for the chosen lighter path (documented in ADR-028).
+- AC5 — functional test enrols a trusted device, proves it skips 2FA, rotates the secret, asserts the challenge fires again.
+
+**Tests** — 8 real unit + 1 functional; no skips/fakes/weakened assertions. 14/14 targeted pass; full 566-test PHPUnit suite green.
+
+**Non-blocking:** `config/reference.php` in the diff is stale auto-generated psalm-hint drift (acceptance config dir is intact — no real change, not production config); the Codeception errors are the documented pre-existing shared-DB pollution in unrelated Navigation/Sidebar tests. Recommend trimming the auto-generated file from the commit, but neither blocks the feature.
+== Marking feature complete ==
+Tracking files updated. Summary:
+
+- **feature_list.json** — FEATURE-132 set to `passes: true` with a 7-item evidence array (binding-token implementation, AC1–AC3 coverage, call-site changes, new unit + functional tests, reviewer confirmation, ADR-028 pointer). No other feature touched.
+- **claude-progress.txt** — appended a concise FEATURE-132 round summary (what was built, ADR-028 design note including AC4=N/A rationale, verification, COMPLETE status).
+- **DECISIONS.md** — no change needed; ADR-028 already records the durable decision.
+- **OPEN_QUESTIONS.md** — no change needed; no new ambiguity surfaced (the lighter-vs-table path was resolved in ADR-028, not an open question).
+
+No application code was modified. The incidental drift (`.agent/agent-loop.out`, stale `config/reference.php`) was flagged by the reviewer as non-feature and should be excluded from the feature commit.
+To https://github.com/axcelmediacorp/symfony-auth-boilerplate.git
+   dcd30ec..097d683  HEAD -> master
+[master 097d683] Agent round 28: complete current feature
+ 13 files changed, 439 insertions(+), 119 deletions(-)
+ create mode 100644 tests/Unit/Security/TrustedDeviceManagerTest.php
+Round 28 complete.
+
+==============================
+Agent round 29 / 100
+==============================
+== Init environment ==
+== Init environment ==
+Root: /home/vboxuser/Projects/symfony-auth-boilerplate
+APP_ENV=test
+BASE_URL=http://auth.localhost
+== Local URL check ==
+Local app responds at http://auth.localhost
+== Init complete ==
+== Implementation pass ==

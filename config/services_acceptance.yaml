@@ -1,0 +1,12 @@
+parameters:
+    # Acceptance scenarios drive the Htaccess Lock for real (over HTTP); never let them edit public/.htaccess.
+    # The Cest resets this directory; PHP's built-in server ignores .htaccess, so nothing is ever enforced.
+    app.htaccess_path: '%kernel.project_dir%/var/acceptance-htaccess/.htaccess'
+    app.htaccess_lock.lock_path: '%kernel.project_dir%/var/acceptance-htaccess.lock'
+    app.htaccess_lock.gate_lock_path: '%kernel.project_dir%/var/acceptance-htaccess-gate.lock'
+    app.htaccess_lock.settle_us: 0
+
+services:
+    App\Service\WebhookDispatcherInterface: '@App\Service\InMemoryWebhookDispatcher'
+    App\Service\InMemoryWebhookDispatcher:
+        public: true

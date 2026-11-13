@@ -1,0 +1,37 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Database Console{% endblock %}
+
+{% block body %}
+<h1>Database Console</h1>
+
+{% for message in app.flashes('error') %}<div class="error">{{ message }}</div>{% endfor %}
+{% for message in app.flashes('success') %}<div class="success">{{ message }}</div>{% endfor %}
+
+<p>
+    Direct SQLite access through phpLiteAdmin. Arming opens a {{ windowMinutes }}-minute window;
+    the console is bound to your IP and dies when the window lapses or is switched off.
+</p>
+
+{% if isArmed %}
+    <div class="success">Armed until {{ enabledUntil|date('Y-m-d H:i:s') }} UTC.</div>
+
+    <form method="post" action="{{ path('app_admin_db_open') }}">
+        <input type="hidden" name="_token" value="{{ csrf_token('db_console_open') }}">
+        <button type="submit">Open the database console</button>
+    </form>
+
+    <form method="post" action="{{ path('app_admin_db_enable') }}">
+        <input type="hidden" name="_token" value="{{ csrf_token('db_console_enable') }}">
+        <input type="hidden" name="_disarm" value="1">
+        <button type="submit" class="danger">Disable now (revokes open sessions)</button>
+    </form>
+{% else %}
+    <div class="warning">The console is disabled.</div>
+
+    <form method="post" action="{{ path('app_admin_db_enable') }}">
+        <input type="hidden" name="_token" value="{{ csrf_token('db_console_enable') }}">
+        <button type="submit">Arm for {{ windowMinutes }} minutes</button>
+    </form>
+{% endif %}
+{% endblock %}

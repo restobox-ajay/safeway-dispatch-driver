@@ -1,0 +1,4 @@
+; Proof photos are up to 8 MB (DriverPhotoApiController::MAX_BYTES); the PHP default of 2 MB rejected
+; larger phone photos before the app saw them (GitHub #8). Read by PHP-FPM / CGI hosts such as cPanel.
+upload_max_filesize = 10M
+post_max_size = 12M

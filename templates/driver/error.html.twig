@@ -1,0 +1,39 @@
+{% extends app.user ? 'driver/app.html.twig' : 'driver/base.html.twig' %}
+{% import 'driver/_icons.html.twig' as icon %}
+
+{# Signed in, away from the task views: Reload may only bring the same answer back (a stop that left the
+   route), so there is always a way back to the tasks too. #}
+{% set back_to_tasks = app.user and app.request.pathInfo not in [path('app_driver_tasks'), path('app_driver_route')] %}
+
+{% block title %}FVST Driver{% endblock %}
+
+{% block topbar_left %}
+    {% if back_to_tasks %}
+        <a class="topbar-icon-btn" href="{{ path('app_driver_tasks') }}" aria-label="Back" data-back-to-tasks>{{ icon.back() }}</a>
+    {% else %}
+        {{ parent() }}
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+    <div style="text-align:center;margin-top:48px;">
+        <p role="alert" style="margin-bottom:16px;">{{ message }}</p>
+        {% if back_to_tasks %}
+            <div style="max-width:260px;margin:0 auto;">
+                <a class="btn btn-primary btn-block" href="{{ path('app_driver_tasks') }}" data-back-to-tasks>{{ icon.back(16) }} Back to tasks</a>
+                <a class="btn btn-secondary btn-block" href="" style="margin-top:8px;">{{ offline ? 'Try again' : 'Reload' }}</a>
+            </div>
+        {% else %}
+            <a class="btn btn-primary" href="">{{ offline ? 'Try again' : 'Reload' }}</a>
+        {% endif %}
+    </div>
+{% endblock %}
+
+{# Signed out (base layout): the same message in the plain frame. #}
+{% block screen %}
+    {% if app.user %}
+        {{ parent() }}
+    {% else %}
+        <div class="app-content">{{ block('content') }}</div>
+    {% endif %}
+{% endblock %}

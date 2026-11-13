@@ -1,0 +1,29 @@
+name: Prune release assets
+
+# Weekly: deletes the tarball/checksum assets (never the releases or tags) of all but the newest 10 releases.
+# Manual runs are a dry run unless you untick "dry_run".
+on:
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Only list what would be deleted'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prune old release assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEEP: '10'
+          # Scheduled runs act; manual runs follow the input (default: dry run).
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+        run: bash bin/prune-release-assets.sh

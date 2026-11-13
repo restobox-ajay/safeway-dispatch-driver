@@ -1,0 +1,40 @@
+framework:
+    messenger:
+        # Exhausted messages (retries exceeded) are moved here for later inspection/retry.
+        failure_transport: failed
+
+        transports:
+            # Doctrine async transport — email + webhook delivery run on a worker, not on the
+            # login/request path. See ADR-023. Requires a running `messenger:consume async`
+            # (see README "Background worker").
+            async:
+                dsn: '%env(MESSENGER_TRANSPORT_DSN)%'
+                retry_strategy:
+                    max_retries: 3
+                    delay: 1000
+                    multiplier: 2
+                    max_delay: 3600000
+            failed: 'doctrine://default?queue_name=failed'
+
+        routing:
+            # Mailer enqueues instead of sending inline (no listener code change).
+            Symfony\Component\Mailer\Messenger\SendEmailMessage: async
+            # Webhook HTTP call + WebhookDelivery logging move to the worker. The message class is
+            # owned by auth-webhook-bundle (FEATURE-141); this routing entry is harmless when the bundle
+            # is absent (nothing dispatches the message — the null webhook dispatcher no-ops).
+            App\Bundle\AuthWebhook\Message\SendWebhookMessage: async
+
+when@test:
+    framework:
+        messenger:
+            transports:
+                # Real async transport, but inspectable and never actually sends/consumes,
+                # so a dispatched SendWebhookMessage can be asserted without a running worker.
+                async: 'in-memory://'
+                failed: 'in-memory://'
+                sync: 'sync://'
+            routing:
+                # Emails are sent inline in tests so the existing MailerAssertionsTrait
+                # (assertEmailCount / getMailerMessages) — which counts *sent*, not *queued*,
+                # emails — keeps working. Production still routes SendEmailMessage to async.
+                Symfony\Component\Mailer\Messenger\SendEmailMessage: 'sync'

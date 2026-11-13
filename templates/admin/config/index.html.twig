@@ -1,0 +1,60 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Configuration{% endblock %}
+
+{% block body %}
+<h1>Configuration</h1>
+
+{% for message in app.flashes('success') %}
+    <div class="flash-success">{{ message }}</div>
+{% endfor %}
+
+{% set errors = errors|default({}) %}
+{# Only a superadmin changes settings (they govern security); other admins see them read-only. #}
+{% set can_edit = is_granted('ROLE_SUPER_ADMIN') %}
+{% if not can_edit %}
+    <p class="config-read-only">Only a superadmin can change these settings.</p>
+{% endif %}
+{% if errors is not empty %}
+    <div class="flash-error">Some values were invalid and were not saved. Please correct the highlighted fields.</div>
+{% endif %}
+
+{% if pages is empty %}
+    <p>No configuration pages registered.</p>
+{% else %}
+    {% for page in pages %}
+        <section class="config-page" data-slug="{{ page.provider.slug }}">
+            <h2>{{ page.provider.title }}</h2>
+            <form method="post" action="{{ path('app_admin_config_save', {slug: page.provider.slug}) }}">
+                <input type="hidden" name="_token" value="{{ csrf_token('admin_config_save_' ~ page.provider.slug) }}">
+                {% for key, field in page.provider.fields %}
+                    <div class="form-field">
+                        <label for="field_{{ key|replace({'.': '_'}) }}">{{ field.label }}</label>
+                        {% if field.type == 'bool' %}
+                            <input type="checkbox"
+                                   id="field_{{ key|replace({'.': '_'}) }}"
+                                   name="fields[{{ key }}]"{% if not can_edit %} disabled{% endif %}
+                                   value="1"
+                                   {% if page.values[key] == '1' %}checked{% endif %}>
+                        {% elseif field.type == 'int' %}
+                            <input type="number"
+                                   id="field_{{ key|replace({'.': '_'}) }}"
+                                   name="fields[{{ key }}]"{% if not can_edit %} disabled{% endif %}
+                                   value="{{ page.values[key] ?? '' }}">
+                        {% else %}
+                            <input type="text"
+                                   id="field_{{ key|replace({'.': '_'}) }}"
+                                   name="fields[{{ key }}]"{% if not can_edit %} disabled{% endif %}
+                                   value="{{ page.values[key] ?? '' }}">
+                        {% endif %}
+                        {% if errors[key] is defined %}
+                            <p class="field-error" data-field="{{ key }}">{{ errors[key] }}</p>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+                {% if can_edit %}<button type="submit">Save</button>{% endif %}
+            </form>
+        </section>
+    {% endfor %}
+{% endif %}
+{% endblock %}

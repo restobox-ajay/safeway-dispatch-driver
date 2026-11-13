@@ -1,0 +1,73 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Audit Log — Admin{% endblock %}
+
+{% block body %}
+<h1>Audit Log</h1>
+{% if filterError is defined and filterError %}
+<p class="filter-error" role="alert">{{ filterError }}</p>
+{% endif %}
+<p>Total: {{ total }}</p>
+
+<form method="get" action="{{ path('app_admin_audit_log') }}">
+    <label for="actor">Actor:</label>
+    <input type="text" id="actor" name="actor" value="{{ filters.actor ?? '' }}">
+
+    <label for="action">Action:</label>
+    <input type="text" id="action" name="action" value="{{ filters.action ?? '' }}">
+
+    <label for="date_from">From:</label>
+    <input type="date" id="date_from" name="date_from" value="{{ filters.date_from ?? '' }}">
+
+    <label for="date_to">To:</label>
+    <input type="date" id="date_to" name="date_to" value="{{ filters.date_to ?? '' }}">
+
+    <button type="submit">Filter</button>
+    <a href="{{ path('app_admin_audit_log') }}">Clear</a>
+</form>
+
+<table>
+    <thead>
+        <tr>
+            <th>Actor</th>
+            <th>Type</th>
+            <th>IP</th>
+            <th>Action</th>
+            <th>Outcome</th>
+            <th>Timestamp</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for entry in entries %}
+        <tr class="audit-entry">
+            <td class="entry-actor">{{ entry.actor }}</td>
+            <td class="entry-actor-type">{{ entry.actorType }}</td>
+            <td class="entry-ip">{{ entry.ip }}</td>
+            <td class="entry-action">{{ entry.action }}</td>
+            <td class="entry-outcome">{{ entry.outcome }}</td>
+            <td class="entry-time">{{ entry.createdAt | date('Y-m-d H:i:s') }}</td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="6">No audit entries found.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+{% if totalPages > 1 %}
+<nav aria-label="Pagination">
+    {% if currentPage > 1 %}
+    <a href="{{ path('app_admin_audit_log', filters|merge({page: currentPage - 1})) }}">Previous</a>
+    {% endif %}
+
+    {% for p in 1..totalPages %}
+    <a href="{{ path('app_admin_audit_log', filters|merge({page: p})) }}"{% if p == currentPage %} aria-current="page"{% endif %}>{{ p }}</a>
+    {% endfor %}
+
+    {% if currentPage < totalPages %}
+    <a href="{{ path('app_admin_audit_log', filters|merge({page: currentPage + 1})) }}">Next</a>
+    {% endif %}
+</nav>
+{% endif %}
+{% endblock %}

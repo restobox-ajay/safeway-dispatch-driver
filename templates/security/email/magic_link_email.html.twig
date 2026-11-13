@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body>
+<h1>Your Magic Login Link</h1>
+<p>Click the link below to log in to your account. No password needed.</p>
+<p>
+    <a href="{{ verifyUrl }}">Log in now</a>
+</p>
+<p>This link will expire in {{ expiryMinutes }} minutes (at {{ expiresAt|date('H:i') }} UTC).</p>
+<p>If you did not request this link, you can safely ignore this email.</p>
+</body>
+</html>

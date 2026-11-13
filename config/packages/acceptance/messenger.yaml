@@ -1,0 +1,8 @@
+framework:
+    messenger:
+        transports:
+            # The acceptance live server has no background worker, so process inline. The mailer
+            # DSN is null:// (no-op) and webhooks use the InMemory dispatcher in this env, so
+            # "sync" keeps behaviour identical to pre-Messenger without needing a consumer.
+            async: 'sync://'
+            failed: 'sync://'

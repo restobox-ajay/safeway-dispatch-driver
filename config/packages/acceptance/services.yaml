@@ -1,0 +1,4 @@
+services:
+    App\Service\WebhookDispatcherInterface: '@App\Service\InMemoryWebhookDispatcher'
+    App\Service\InMemoryWebhookDispatcher:
+        public: true

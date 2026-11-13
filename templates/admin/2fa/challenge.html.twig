@@ -1,0 +1,32 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Admin Two-Factor Authentication{% endblock %}
+
+{% block body %}
+<h1>Two-Factor Authentication</h1>
+
+<p>Enter the 6-digit code from your authenticator app.</p>
+
+<form method="post" action="{{ path('app_admin_2fa_challenge') }}">
+    <input type="hidden" name="_token" value="{{ csrf_token('admin_2fa_challenge') }}">
+
+    {% if error %}
+        <div class="error">{{ error }}</div>
+    {% endif %}
+
+    <div class="form-field">
+        <label for="_code">Authentication Code</label>
+        <input type="text"
+               id="_code"
+               name="_code"
+               inputmode="numeric"
+               autocomplete="one-time-code"
+               maxlength="6"
+               placeholder="000000"
+               autofocus
+               required>
+    </div>
+
+    <button type="submit">Verify</button>
+</form>
+{% endblock %}

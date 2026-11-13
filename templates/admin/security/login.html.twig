@@ -1,0 +1,39 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Admin Login{% endblock %}
+
+{% block body %}
+<h1>Admin Login</h1>
+
+{% if error %}
+    <div class="error">{{ error.messageKey|trans(error.messageData, 'security') }}</div>
+{% endif %}
+
+{% for message in app.flashes('error') %}
+    <div class="error">{{ message }}</div>
+{% endfor %}
+
+{% for message in app.flashes('success') %}
+    <div class="success">{{ message }}</div>
+{% endfor %}
+
+<form method="post" action="{{ path('app_admin_login') }}">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token('authenticate') }}">
+    <div>
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" value="{{ last_username }}" autocomplete="email" required>
+    </div>
+    <div>
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" required>
+    </div>
+    <div>
+        <label class="checkbox-row" for="remember_me">
+            <input type="checkbox" id="remember_me" name="_remember_me"{{ remember_me_checked|default(false) ? ' checked' : '' }}> Remember me
+        </label>
+    </div>
+    <button type="submit">Sign in</button>
+</form>
+
+<p><a href="{{ path('app_admin_forgot_password') }}">Forgot your password?</a></p>
+{% endblock %}

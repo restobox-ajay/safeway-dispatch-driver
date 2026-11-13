@@ -1,0 +1,49 @@
+{% extends 'driver/base.html.twig' %}
+{#
+    Driver login at /login (FEATURE-193): the driver mockup's login.html (phone frame, login-screen).
+    The login + PIN are checked by the admin driver API.
+#}
+
+{% block title %}Log In — FVST Express Driver{% endblock %}
+
+{% block screen %}
+<div class="login-screen">
+    <div class="login-brand">
+        <div class="brand-mark">FV</div>
+        <h1 style="margin:0;">FVST Express</h1>
+        <p class="text-faint" style="margin:2px 0 0;">Driver</p>
+    </div>
+
+    {% if error %}
+        <div class="alert alert-danger form-error" id="login-error" role="alert">{{ error.messageKey|trans(error.messageData, 'security') }}</div>
+    {% endif %}
+
+    <form method="post" action="{{ path('app_driver_login') }}" novalidate>
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token('driver_login') }}">
+        <div class="form-group">
+            <label for="login">Phone number or employee card #</label>
+            <input type="text" id="login" name="login" value="{{ last_username }}" placeholder="(604) 555-0110"
+                   autocomplete="username" autocapitalize="characters" required{{ last_username ? '' : ' autofocus' }}>
+        </div>
+        <div class="form-group">
+            <label for="pin">PIN / Password</label>
+            <input type="password" id="pin" name="pin" placeholder="••••••" autocomplete="current-password" required{{ last_username ? ' autofocus' : '' }}>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Log in</button>
+    </form>
+    <p class="form-help" style="text-align:center;margin-top:10px;">Forgot your PIN? Contact dispatch.</p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+    {# Signed out: the previous driver's pages must not stay readable offline on a shared phone. #}
+    {# /login is outside the worker's /driver/ scope, so message the registered worker rather than a controller. #}
+    <script>
+        if (navigator.serviceWorker && navigator.serviceWorker.getRegistration) {
+            navigator.serviceWorker.getRegistration('/driver/').then(function (reg) {
+                var sw = reg && (reg.active || reg.waiting);
+                if (sw) sw.postMessage('clear-pages');
+            }).catch(function () {});
+        }
+    </script>
+{% endblock %}

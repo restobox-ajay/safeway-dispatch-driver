@@ -1,0 +1,49 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Account Settings{% endblock %}
+
+{% block body %}
+<h1>Account Settings</h1>
+
+{% for message in app.flashes('success') %}
+    <div class="flash-success">{{ message }}</div>
+{% endfor %}
+{% for message in app.flashes('error') %}
+    <div class="flash-error error">{{ message }}</div>
+{% endfor %}
+
+<form method="post" action="{{ path('app_account_settings') }}">
+    <input type="hidden" name="_token" value="{{ csrf_token('account_settings') }}">
+
+    <div class="form-field">
+        <label for="login_notifications_enabled">Receive login notifications for unrecognized devices</label>
+        <input type="checkbox"
+               id="login_notifications_enabled"
+               name="login_notifications_enabled"
+               value="1"
+               {% if user.loginNotificationsEnabled %}checked{% endif %}>
+    </div>
+
+    <button type="submit">Save Settings</button>
+</form>
+
+{# The 2FA section links point at auth-2fa-bundle routes, so render it only when the bundle is present
+   (the `two_factor_available` Twig global is set by the bundle; undefined ⇒ hidden). See ADR-043. #}
+{% if two_factor_available is defined and two_factor_available %}
+<hr>
+
+<h2>Two-Factor Authentication</h2>
+
+{% if two_factor_enabled %}
+    <p class="2fa-status">Two-factor authentication is <strong>enabled</strong>.</p>
+    <a href="{{ path('app_2fa_setup', {reconfigure: 1}) }}">Reconfigure 2FA</a>
+    <form method="post" action="{{ path('app_2fa_disable') }}" style="display:inline">
+        <input type="hidden" name="_token" value="{{ csrf_token('2fa_disable') }}">
+        <button type="submit" class="2fa-disable-btn">Disable 2FA</button>
+    </form>
+{% else %}
+    <p class="2fa-status">Two-factor authentication is <strong>disabled</strong>.</p>
+    <a href="{{ path('app_2fa_setup') }}" class="2fa-enable-link">Enable 2FA</a>
+{% endif %}
+{% endif %}
+{% endblock %}

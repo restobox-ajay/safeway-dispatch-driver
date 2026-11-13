@@ -1,0 +1,13 @@
+http://auth.localhost {
+	root * /home/vboxuser/Projects/symfony-auth-boilerplate/public
+	encode gzip zstd
+	php_fastcgi unix//run/php/php8.3-fpm.sock {
+		env APP_ENV dev
+	}
+	file_server
+
+	log {
+		output file /home/vboxuser/Projects/symfony-auth-boilerplate/.agent/caddy-access.log
+		format console
+	}
+}

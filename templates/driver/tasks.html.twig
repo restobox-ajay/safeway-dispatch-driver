@@ -1,0 +1,67 @@
+{% extends 'driver/app.html.twig' %}
+
+{% block title %}Tasks · FVST Driver{% endblock %}
+
+{% block head %}
+    {# GitHub #48: the route map is the default task view; this list opens when the driver chose it (the header toggle,
+       remembered on this phone). Today's list only — All / Completed are list-only views. #}
+    {% if view == 'today' %}
+        <script>try { if (localStorage.getItem("fvst-task-view") !== "list") location.replace({{ path('app_driver_route')|json_encode|raw }}); } catch (e) { /* storage blocked: stay on the list */ }</script>
+    {% endif %}
+{% endblock %}
+
+{% block topbar_right %}
+    <a class="topbar-icon-btn" href="{{ path('app_driver_route') }}" aria-label="Show map" title="Show map" data-task-view="map">{# GitHub #48 #}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s7-7.58 7-12a7 7 0 1 0-14 0c0 4.42 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/></svg>
+    </a>
+{% endblock %}
+
+{% block above_content %}
+    <div class="segmented">
+        {% for key, label in views %}
+            <a href="{{ path('app_driver_tasks', {view: key}) }}"{{ key == view ? ' class="active" aria-current="page"' }}>{{ label }}</a>
+        {% endfor %}
+    </div>
+{% endblock %}
+
+{% block content %}
+    <div data-segment-panel="{{ view }}">
+    {% if empty %}
+        <p class="text-faint" style="text-align:center;margin-top:40px;">
+            {{ view == 'completed' ? 'Nothing completed yet today.' : 'No tasks right now. Pull down to refresh.' }}
+        </p>
+    {% else %}
+        {% for day in days %}
+            {% if view == 'all' %}
+                <div class="task-list-date-header">{{ day.label|upper }}</div>
+            {% endif %}
+            <div class="task-list">
+                {% for stop in day.stops %}
+                    {% set bar = driver_day_bar(stop.window.start ?? null, stop.window.end ?? null, date('now', driver_timezone)) %}
+                    <a class="task-card" href="{{ path('app_driver_stop', {stopKey: stop.stop_key}) }}" style="text-decoration:none;color:inherit;">
+                        <div class="task-card-top">
+                            {% if stop.urgent ?? false %}<span class="urgency-flag" title="Urgent" aria-label="Urgent">⚑</span>{% endif %}
+                            {% if stop.leg == 'pickup' %}
+                                <span class="kc-leg-tag kc-leg-pickup" title="Pickup" aria-label="Pickup">⮝</span>
+                            {% else %}
+                                <span class="kc-leg-tag kc-leg-dropoff" title="Dropoff" aria-label="Dropoff">⮟</span>
+                            {% endif %}
+                            {# With JOB ids, the stable reference (GitHub #27). #}
+                            <span class="task-card-order">{{ (stop.orders ?? [])|slice(0, 2)|map(o => o.name ~ ' · ' ~ o.reference)|join(' & ') }}{% if (stop.orders ?? [])|length > 2 %} +{{ (stop.orders|length) - 2 }}{% endif %}</span>
+                            <span class="task-card-chevron">›</span>
+                        </div>
+                        {% if stop.business ?? null %}<div class="task-card-sub">{{ stop.business }}</div>{% endif %}
+                        <div class="task-card-addr">{{ stop.address }}{% if stop.contact ?? null %} <span class="task-card-sub">· {{ stop.contact }}</span>{% endif %}</div>
+                        <div class="task-card-footer">
+                            <span class="task-card-time">{{ stop|driver_card_time }}</span>
+                            {% if bar %}
+                                <span class="day-graph-bar"><span class="dgb-window" style="left:{{ bar.left }}%;width:{{ bar.width }}%;"></span><span class="dgb-now" style="left:{{ bar.now }}%;"></span></span>
+                            {% endif %}
+                        </div>
+                    </a>
+                {% endfor %}
+            </div>
+        {% endfor %}
+    {% endif %}
+    </div>
+{% endblock %}

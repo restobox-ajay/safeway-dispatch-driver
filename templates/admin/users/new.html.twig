@@ -1,0 +1,66 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Create User — Admin{% endblock %}
+
+{% block body %}
+<h1>Create User</h1>
+
+{% for message in app.flashes('success') %}
+    <div class="flash-success">{{ message }}</div>
+{% endfor %}
+
+{% if errors is not empty %}
+    <div class="error">
+        {% for error in errors %}
+            <p>{{ error }}</p>
+        {% endfor %}
+    </div>
+{% endif %}
+
+<form method="post" action="{{ path('app_admin_users_new') }}">
+    <input type="hidden" name="_token" value="{{ csrf_token('admin_user_create') }}">
+
+    <div>
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" autocomplete="off" required>
+        {% if errors.email is defined %}
+            <span class="field-error">{{ errors.email }}</span>
+        {% endif %}
+    </div>
+
+    <div>
+        <label for="name">Name</label>
+        <input type="text" id="name" name="name" autocomplete="off" required>
+        {% if errors.name is defined %}
+            <span class="field-error">{{ errors.name }}</span>
+        {% endif %}
+    </div>
+
+    <div>
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" autocomplete="new-password" required>
+        {% if errors.password is defined %}
+            <span class="field-error">{{ errors.password }}</span>
+        {% endif %}
+    </div>
+
+    <div>
+        <label for="role">Role</label>
+        <select id="role" name="role">
+            <option value="ROLE_USER">User</option>
+        </select>
+    </div>
+
+    <div>
+        <label for="status">Status</label>
+        <select id="status" name="status">
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+        </select>
+    </div>
+
+    <button type="submit">Create User</button>
+</form>
+
+<p><a href="{{ path('app_admin_users') }}">Back to user list</a></p>
+{% endblock %}

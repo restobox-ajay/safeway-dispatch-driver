@@ -1,0 +1,177 @@
+security:
+    password_hashers:
+        Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface: 'auto'
+
+    role_hierarchy:
+        ROLE_SUPER_ADMIN: [ROLE_ADMIN]
+        # Maintainer tier (ADR-050): full superadmin powers, but accounts holding it are
+        # hidden from all admin-management surfaces for non-tech-support viewers.
+        ROLE_TECH_SUPPORT: [ROLE_SUPER_ADMIN]
+
+    providers:
+        app_users:
+            entity:
+                class: App\Entity\User
+                property: email
+        app_admins:
+            entity:
+                class: App\Entity\Admin
+                property: email
+        # Drivers of the FVST Express driver web app (ADR-074): not stored here; built from the
+        # fvstexpress-admin API's driver object kept with this session's API tokens.
+        app_drivers:
+            id: App\Security\Driver\DriverUserProvider
+
+    firewalls:
+        dev:
+            pattern: ^/(_profiler|_wdt|assets|build)/
+            security: false
+        admin_api:
+            # Must precede the `admin` firewall: ^/admin also matches /admin-api.
+            # Stateless, Admin-entity-only token auth — the admin REST API security boundary.
+            pattern: ^/admin-api
+            # FEATURE-091: optional separate-domain mode. An empty ADMIN_DOMAIN
+            # compiles to a host regex that matches every host (single-domain
+            # default — no regression); when set, this firewall only matches the
+            # admin host.
+            host: '%env(ADMIN_DOMAIN)%'
+            stateless: true
+            provider: app_admins
+            custom_authenticators:
+                - App\Security\AdminTokenAuthenticator
+            # 403 for a role that is too low (tech-support-only endpoints) is JSON like every other API error.
+            access_denied_handler: App\Security\AdminApiAccessDeniedHandler
+        admin:
+            pattern: ^/admin
+            # FEATURE-091: only match the admin host when ADMIN_DOMAIN is set
+            # (empty = match all hosts = single-domain default).
+            host: '%env(ADMIN_DOMAIN)%'
+            lazy: true
+            provider: app_admins
+            user_checker: App\Security\AdminChecker
+            form_login:
+                login_path: app_admin_login
+                check_path: app_admin_login
+                enable_csrf: true
+                username_parameter: email
+                password_parameter: password
+                default_target_path: /admin/dashboard
+            logout:
+                path: app_admin_logout
+                target: /admin/login
+        api:
+            pattern: ^/api
+            stateless: true
+            provider: app_users
+            # The PAT authenticator lives in auth-pat-bundle (FEATURE-138 / ADR-010). This firewall
+            # references a STABLE core alias instead of the bundle class directly, so security.yaml
+            # compiles whether or not the bundle is registered (firewalls must all live in one file,
+            # so the firewall itself cannot be bundle-conditional). Core aliases app.api_authenticator
+            # to App\Security\NullApiAuthenticator (supports()=false → never authenticates). With the
+            # bundle absent the bundle's own /api routes are gone (404), and any APPLICATION-level /api
+            # route is still refused by the `^/api` access_control rule below (401), so /api fails closed
+            # whichever authenticator is wired (issue #27). When the bundle IS registered, its compiler
+            # pass re-aliases app.api_authenticator to the real TokenAuthenticator.
+            custom_authenticators:
+                - app.api_authenticator
+        # FVST Express driver web app (ADR-074, docs/DRIVER_APP.md). Before `user`, which has no
+        # pattern and would otherwise take /driver. The PIN is checked by the fvstexpress-admin API.
+        driver:
+            # /login is the driver login (the app's front door); staff sign in at /staff/login.
+            pattern: ^/(?:driver|login$)
+            host: '%env(APP_DOMAIN)%'
+            lazy: true
+            provider: app_drivers
+            custom_authenticators:
+                - App\Security\Driver\DriverPinAuthenticator
+            entry_point: App\Security\Driver\DriverPinAuthenticator
+            logout:
+                path: app_driver_logout
+                target: app_driver_login
+        user:
+            # FEATURE-091: only match the app host when APP_DOMAIN is set
+            # (empty = match all hosts = single-domain default).
+            host: '%env(APP_DOMAIN)%'
+            lazy: true
+            provider: app_users
+            user_checker: App\Security\UserChecker
+            custom_authenticators:
+                # The magic-link authenticator lives in auth-magic-link-bundle (FEATURE-140 / ADR-040).
+                # This firewall references a STABLE core alias instead of the bundle class directly, so
+                # security.yaml compiles whether or not the bundle is registered (firewalls must all
+                # live in one file, so the authenticator cannot be bundle-conditional). Core aliases
+                # app.magic_link_authenticator to App\Security\NullMagicLinkAuthenticator
+                # (supports()=false → never authenticates), so with the bundle absent /magic-link*
+                # requests fall through to routing and 404 (those routes are bundle-owned too). When
+                # the bundle IS registered its compiler pass re-aliases it to the real MagicLinkAuthenticator.
+                - app.magic_link_authenticator
+                # The impersonation authenticator lives in auth-impersonate-bundle (FEATURE-142 /
+                # ADR-041). Same pattern as magic-link above: a STABLE core alias so security.yaml
+                # compiles whether or not the bundle is registered. Core aliases
+                # app.impersonation_authenticator to App\Security\NullImpersonationAuthenticator
+                # (supports()=false → never authenticates), so with the bundle absent /impersonate/*
+                # requests fall through to routing and 404 (those routes are bundle-owned too). When
+                # the bundle IS registered its compiler pass re-aliases it to the real ImpersonationAuthenticator.
+                - app.impersonation_authenticator
+            form_login:
+                login_path: app_login
+                check_path: app_login
+                enable_csrf: true
+                username_parameter: email
+                password_parameter: password
+                default_target_path: /dashboard
+            remember_me:
+                secret: '%kernel.secret%'
+                service: App\Security\ConfigAwareRememberMeHandler
+            logout:
+                path: app_logout
+                target: /staff/login
+
+    # NOTE on separate-domain mode (ADMIN_DOMAIN/APP_DOMAIN, FEATURE-091): access_control
+    # below only runs for a request that MATCHES a firewall. If those host envs are set and a
+    # request arrives on a host matching neither, no firewall matches and these rules do NOT
+    # run. The defense-in-depth that still protects the admin surface in that case is the
+    # class-level #[IsGranted('ROLE_ADMIN')] on every admin controller (enforced independently
+    # of firewall matching). Any new admin/admin-api controller MUST carry that attribute.
+    access_control:
+        # Driver web app: only the login page and the service worker are public.
+        - { path: ^/driver/login$, roles: PUBLIC_ACCESS }
+        - { path: ^/driver/sw\.js$, roles: PUBLIC_ACCESS }
+        - { path: ^/driver, roles: ROLE_DRIVER }
+        - { path: ^/admin/login$, roles: PUBLIC_ACCESS }
+        - { path: ^/admin/forgot-password, roles: PUBLIC_ACCESS }
+        - { path: ^/admin/reset-password, roles: PUBLIC_ACCESS }
+        - { path: ^/admin-api, roles: ROLE_ADMIN }
+        - { path: ^/admin, roles: ROLE_ADMIN }
+        # The stateless PAT API. Without this rule /api relied solely on the authenticator, so with auth-pat-bundle
+        # removed an application-level /api route ran anonymously (issue #27).
+        - { path: ^/api, roles: ROLE_USER }
+        - { path: ^/login$, roles: PUBLIC_ACCESS }
+        - { path: ^/staff/login$, roles: PUBLIC_ACCESS }
+        - { path: ^/register$, roles: PUBLIC_ACCESS }
+        - { path: ^/forgot-password, roles: PUBLIC_ACCESS }
+        - { path: ^/reset-password, roles: PUBLIC_ACCESS }
+        - { path: ^/verify-email, roles: PUBLIC_ACCESS }
+        - { path: ^/resend-verification, roles: PUBLIC_ACCESS }
+        - { path: ^/magic-link, roles: PUBLIC_ACCESS }
+        - { path: ^/impersonate/start$, roles: PUBLIC_ACCESS }
+        - { path: ^/impersonate/exit$, roles: ROLE_USER }
+        - { path: ^/2fa, roles: ROLE_USER }
+        - { path: ^/account, roles: ROLE_USER }
+        - { path: ^/dashboard, roles: ROLE_USER }
+
+when@test:
+    security:
+        password_hashers:
+            Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface:
+                algorithm: auto
+                cost: 4
+                time_cost: 3
+                memory_cost: 10
+        firewalls:
+            admin:
+                form_login:
+                    enable_csrf: false
+            user:
+                form_login:
+                    enable_csrf: false

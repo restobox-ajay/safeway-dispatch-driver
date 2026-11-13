@@ -1,0 +1,36 @@
+
+###> symfony/framework-bundle ###
+/.env.local
+/.env.local.php
+/.env.*.local
+/config/secrets/prod/prod.decrypt.private.php
+/public/bundles/
+/var/
+/vendor/
+###< symfony/framework-bundle ###
+
+###> phpunit/phpunit ###
+/phpunit.xml
+/.phpunit.cache/
+###< phpunit/phpunit ###
+
+# Agent-loop generated run logs (regenerated every round; not source of truth)
+.agent/verify.log
+.agent/review.log
+
+# generated verify-gate output (root)
+/verify.log
+
+# semantic-release tooling and release tarballs (ADR-066)
+/node_modules/
+/dist/
+
+# Symfony regenerates this on every debug-mode container build (contents depend on the env); IDE hints only, never read at runtime.
+/config/reference.php
+
+###> IDE ###
+/.idea/
+###< IDE ###
+
+# Per-host PHP settings: cPanel MultiPHP INI Editor owns this file (template: deploy/user.ini.template)
+/public/.user.ini

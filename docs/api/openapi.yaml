@@ -1,0 +1,1054 @@
+openapi: 3.1.0
+
+info:
+  title: Symfony Auth Boilerplate API
+  version: 1.0.0
+  description: |
+    The two token-authenticated REST surfaces of this application. Everything here is **verified against the
+    running code on every test run** (`tests/Functional/Api/OpenApiContractTest.php`): each operation is called
+    for real and its status codes, headers and JSON bodies are validated against the schemas below, and
+    `OpenApiSpecTest` fails if a route exists that is not documented (or the reverse). If this file and the code
+    disagree, the build is red — fix whichever one is wrong.
+
+    ## Admin API — `/admin-api/*`
+
+    Stateless, **Admin-entity-only** bearer-token auth (ADR-047). Any admin role can hold a token; a `User` can
+    never reach it. Issue a token from the server shell:
+
+    ```
+    php bin/console app:admin:create-api-token --email=admin@example.com
+    ```
+
+    Send it as `Authorization: Bearer <token>`. The plaintext is shown once; only its SHA-256 hash (and its last 6
+    characters, to tell tokens apart) is stored. Tokens expire after 365 days by default. Revoke one in the admin
+    panel (**API Tokens**), or with `app:admin:revoke-api-token`; deactivating or deleting an admin revokes all of its
+    tokens. A revoked, expired, unknown or deactivated-admin token is answered `401`.
+
+    Endpoints marked with a **bundle** exist only when that optional bundle is registered in
+    `config/bundles.php`; with the bundle removed the route is absent (404 from the router, not from the app).
+
+    ## User API — `/api/*`
+
+    Stateless **personal access token** auth for users (`auth-pat-bundle`). Users create tokens at
+    `/account/tokens`. Only `GET /api/ping` ships; add your own routes under `/api/` and they are protected by
+    the same authenticator automatically.
+
+    ## Conventions
+
+    - Request and response bodies are `application/json`. `204` responses have an empty body.
+    - Timestamps are RFC 3339 / ISO-8601 (`2026-09-30T21:20:14+00:00`).
+    - Validation failures are `422` with either a per-field `errors` map or a single `error` string (see each operation).
+    - Deleting a user is a **soft delete** (status becomes `inactive`); the row and its history are kept.
+    - Every state-changing call is written to the audit log.
+
+servers:
+  - url: /
+    description: This instance
+
+tags:
+  - name: Admin users
+    description: Manage user accounts.
+  - name: Admin invitations
+    description: Invite people to register.
+  - name: Admin audit log
+    description: Read the audit trail.
+  - name: Admin htaccess lock
+    x-audience: tech-support
+    description: |
+      The IP-whitelist lock enforced by the web server itself (ADR-059). **Tech support only** — not even a
+      superadmin token may call these (403), and the whole section is hidden from everyone else. Every call goes
+      through the same single gate as the admin page and the `app:htaccess-lock:disable` command (ADR-062), so
+      validation, the lockout guard (your own IP must stay whitelisted while the lock is on), the audit row and
+      the change event behave identically wherever the change comes from.
+  - name: User API
+    description: Endpoints authenticated with a user personal access token.
+
+paths:
+  /admin-api/users:
+    get:
+      operationId: listUsers
+      tags: [Admin users]
+      summary: List users
+      description: Paginated and filterable. `per_page` outside 1–100 is clamped, not rejected; an unrecognised `status` is ignored.
+      security:
+        - adminBearer: []
+      parameters:
+        - name: page
+          in: query
+          description: 1-based page number, clamped to 1–1000000 (values below 1 become 1, above 1000000 become 1000000).
+          schema: { type: integer, minimum: 1, maximum: 1000000, default: 1 }
+          example: 1
+        - name: per_page
+          in: query
+          description: Page size, clamped to 1–100.
+          schema: { type: integer, minimum: 1, maximum: 100, default: 10 }
+          example: 10
+        - name: email
+          in: query
+          description: Substring filter on the email address.
+          schema: { type: string }
+          example: example.com
+        - name: status
+          in: query
+          description: Only users with this status.
+          schema: { $ref: '#/components/schemas/AccountStatus' }
+          example: active
+      responses:
+        '200':
+          description: A page of users.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserList' }
+              example:
+                data:
+                  - id: 7
+                    email: jane.doe@example.com
+                    name: Jane Doe
+                    status: active
+                    roles: [ROLE_USER]
+                    created_at: '2026-09-30T21:20:14+00:00'
+                meta: { total: 1, page: 1, per_page: 10, total_pages: 1 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+    post:
+      operationId: createUser
+      tags: [Admin users]
+      summary: Create a user
+      description: |
+        Validates exactly like the admin UI (shared service): email format and uniqueness, required name,
+        password policy, known role/status. `role` is fixed to `ROLE_USER` for users.
+      security:
+        - adminBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateUserRequest' }
+            example:
+              email: jane.doe@example.com
+              name: Jane Doe
+              password: CorrectHorse-Battery9Staple!
+              role: ROLE_USER
+              status: active
+      responses:
+        '201':
+          description: The created user.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+              example:
+                id: 7
+                email: jane.doe@example.com
+                name: Jane Doe
+                status: active
+                roles: [ROLE_USER]
+                created_at: '2026-09-30T21:20:14+00:00'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /admin-api/users/{id}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      operationId: getUser
+      tags: [Admin users]
+      summary: Get a user
+      security:
+        - adminBearer: []
+      responses:
+        '200':
+          description: The user.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/UserNotFound' }
+
+    patch:
+      operationId: updateUser
+      tags: [Admin users]
+      summary: Update a user
+      description: |
+        PATCH semantics — only the keys you send are validated and applied (`email`, `name`, `role`, `status`).
+        Setting `status` to `inactive` cuts access immediately (sessions, tokens and recovery links are revoked).
+      security:
+        - adminBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateUserRequest' }
+            example:
+              name: Jane Q. Doe
+      responses:
+        '200':
+          description: The updated user.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/UserNotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+    delete:
+      operationId: deleteUser
+      tags: [Admin users]
+      summary: Delete (deactivate) a user
+      description: Soft delete — sets `status` to `inactive` and revokes outstanding recovery tokens. The record is kept.
+      security:
+        - adminBearer: []
+      responses:
+        '204': { description: Deleted (deactivated). No body. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/UserNotFound' }
+
+  /admin-api/users/{id}/activate:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    post:
+      operationId: activateUser
+      tags: [Admin users]
+      summary: Activate a user
+      security:
+        - adminBearer: []
+      responses:
+        '200':
+          description: The user is now active.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserActionResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/UserNotFound' }
+
+  /admin-api/users/{id}/deactivate:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    post:
+      operationId: deactivateUser
+      tags: [Admin users]
+      summary: Deactivate a user
+      description: Cuts access now, not at next login — drops sessions, revokes personal access tokens, invalidates remember-me and recovery tokens.
+      security:
+        - adminBearer: []
+      responses:
+        '200':
+          description: The user is now inactive.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserActionResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/UserNotFound' }
+
+  /admin-api/users/{id}/force-logout:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    post:
+      operationId: forceLogoutUser
+      tags: [Admin users]
+      summary: Force a user to log out everywhere
+      description: Deletes the user's sessions and invalidates every outstanding remember-me cookie.
+      security:
+        - adminBearer: []
+      responses:
+        '200':
+          description: All sessions ended.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StatusOk' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/UserNotFound' }
+
+  /admin-api/users/{id}/password-reset:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    post:
+      operationId: sendUserPasswordReset
+      tags: [Admin users]
+      summary: Email a password-reset link
+      security:
+        - adminBearer: []
+      responses:
+        '200':
+          description: The reset link was queued.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StatusOk' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/UserNotFound' }
+
+  /admin-api/users/{id}/tokens:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    delete:
+      operationId: revokeUserTokens
+      tags: [Admin users]
+      summary: Revoke all of a user's personal access tokens
+      description: '**Bundle:** `auth-pat-bundle`.'
+      x-bundle: auth-pat-bundle
+      security:
+        - adminBearer: []
+      responses:
+        '204': { description: All tokens revoked. No body. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/UserNotFound' }
+
+  /admin-api/users/{id}/unlock:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    post:
+      operationId: unlockUser
+      tags: [Admin users]
+      summary: Clear an account lockout
+      description: '**Bundle:** `auth-security-bundle`. A no-op when the account is not locked.'
+      x-bundle: auth-security-bundle
+      security:
+        - adminBearer: []
+      responses:
+        '200':
+          description: The account is unlocked.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StatusOk' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/UserNotFound' }
+
+  /admin-api/users/{id}/2fa:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    delete:
+      operationId: resetUserTwoFactor
+      tags: [Admin users]
+      summary: Reset a user's two-factor authentication
+      description: '**Bundle:** `auth-2fa-bundle`. The user must enrol again.'
+      x-bundle: auth-2fa-bundle
+      security:
+        - adminBearer: []
+      responses:
+        '204': { description: Two-factor authentication reset. No body. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/UserNotFound' }
+
+  /admin-api/invitations:
+    post:
+      operationId: sendInvitation
+      tags: [Admin invitations]
+      summary: Invite someone to register
+      security:
+        - adminBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InvitationRequest' }
+            example:
+              email: new.hire@example.com
+      responses:
+        '201':
+          description: The invitation was created and emailed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Invitation' }
+              example:
+                id: 3
+                email: new.hire@example.com
+                expires_at: '2026-10-07T21:20:14+00:00'
+                used_at: null
+                created_at: '2026-09-30T21:20:14+00:00'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422':
+          description: Missing or malformed email.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: Please enter a valid email address. }
+
+  /admin-api/invitations/{id}/resend:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Invitation id.
+        schema: { type: integer, minimum: 1 }
+        example: 3
+    post:
+      operationId: resendInvitation
+      tags: [Admin invitations]
+      summary: Resend an invitation (rotates its token)
+      security:
+        - adminBearer: []
+      responses:
+        '200':
+          description: The invitation was re-sent.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Invitation' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: No such invitation.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: Invitation not found. }
+        '409':
+          description: The invitation was already used and cannot be resent.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: Invitation has already been used and cannot be resent. }
+
+  /admin-api/audit-log:
+    get:
+      operationId: listAuditLog
+      tags: [Admin audit log]
+      summary: Read the audit log
+      description: Newest first, 20 entries per page.
+      security:
+        - adminBearer: []
+      parameters:
+        - name: page
+          in: query
+          description: 1-based page number, clamped to 1–1000000 (values below 1 become 1, above 1000000 become 1000000).
+          schema: { type: integer, minimum: 1, maximum: 1000000, default: 1 }
+          example: 1
+        - name: actor
+          in: query
+          description: Only entries by this actor (email).
+          schema: { type: string }
+          example: admin@example.com
+        - name: action
+          in: query
+          description: Only entries with this action, e.g. `admin.user_create`.
+          schema: { type: string }
+          example: admin.user_create
+        - name: date_from
+          in: query
+          description: Only entries on or after this date (inclusive, `YYYY-MM-DD`).
+          schema: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' }
+          example: '2026-09-01'
+        - name: date_to
+          in: query
+          description: Only entries on or before this date (inclusive, `YYYY-MM-DD`).
+          schema: { type: string, pattern: '^\d{4}-\d{2}-\d{2}$' }
+          example: '2026-09-30'
+      responses:
+        '200':
+          description: A page of audit entries.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuditLogList' }
+              example:
+                data:
+                  - id: 41
+                    actor: admin@example.com
+                    actor_type: admin
+                    ip: 203.0.113.9
+                    action: admin.user_create
+                    outcome: success
+                    context: null
+                    created_at: '2026-09-30T21:20:14+00:00'
+                meta: { total: 1, page: 1, total_pages: 1 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422':
+          description: A date filter was not a real `YYYY-MM-DD` date.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: 'Invalid "date_from" value "banana"; expected format YYYY-MM-DD.' }
+
+  /admin-api/htaccess-lock:
+    get:
+      operationId: getHtaccessLock
+      x-audience: tech-support
+      tags: [Admin htaccess lock]
+      summary: Get the Htaccess Lock
+      description: The current policy, the health of the `.htaccess` file, and the caller's IP as the server sees it.
+      security:
+        - adminBearer: []
+      responses:
+        '200':
+          description: The lock.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HtaccessLock' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+    patch:
+      operationId: updateHtaccessLock
+      x-audience: tech-support
+      tags: [Admin htaccess lock]
+      summary: Change the lock's settings
+      description: |
+        PATCH semantics — only the keys you send change. `ips` and `exempt_paths` **replace** the whole list (use
+        the `/ips` and `/exempt-paths` calls to add or remove one entry). Whether the lock is on is not patched
+        here: use `/enable` and `/disable`. When the lock is on, the result must still whitelist the caller's own IP.
+      security:
+        - adminBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateHtaccessLockRequest' }
+            example:
+              status_code: 404
+              exempt_paths: ['/health']
+      responses:
+        '200':
+          description: The lock after the change.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HtaccessLock' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/HtaccessLockRejected' }
+        '500': { $ref: '#/components/responses/HtaccessWriteFailed' }
+
+  /admin-api/htaccess-lock/enable:
+    post:
+      operationId: enableHtaccessLock
+      x-audience: tech-support
+      tags: [Admin htaccess lock]
+      summary: Switch the lock on
+      description: |
+        Writes the managed block into `.htaccess`. Refused (422) when the whitelist is empty or does not cover the
+        caller's own IP — that would lock the caller out. Allow a couple of seconds for the web server to notice.
+        Run the self-test afterwards: a server that ignores `.htaccess` fails open.
+      security:
+        - adminBearer: []
+      responses:
+        '200':
+          description: The lock, now on.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HtaccessLock' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/HtaccessLockRejected' }
+        '500': { $ref: '#/components/responses/HtaccessWriteFailed' }
+
+  /admin-api/htaccess-lock/disable:
+    post:
+      operationId: disableHtaccessLock
+      x-audience: tech-support
+      tags: [Admin htaccess lock]
+      summary: Switch the lock off
+      description: Removes the managed block from `.htaccess`; the saved whitelist is kept. Never refused for validation reasons.
+      security:
+        - adminBearer: []
+      responses:
+        '200':
+          description: The lock, now off.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HtaccessLock' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/HtaccessWriteFailed' }
+
+  /admin-api/htaccess-lock/ips:
+    get:
+      operationId: listWhitelistedIps
+      x-audience: tech-support
+      tags: [Admin htaccess lock]
+      summary: List whitelisted IPs
+      security:
+        - adminBearer: []
+      responses:
+        '200':
+          description: The whitelist (canonical IPv4/IPv6 addresses and CIDR ranges).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EntryList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+    post:
+      operationId: addWhitelistedIp
+      x-audience: tech-support
+      tags: [Admin htaccess lock]
+      summary: Add a whitelisted IP
+      description: |
+        Accepts an IPv4/IPv6 address or a CIDR range (a `/0` is refused: it would let everyone in). The stored
+        form is canonical, so `2001:DB8::1` and `2001:db8:0:0:0:0:0:1` are the same entry. If the lock is on the
+        change is applied to `.htaccess` immediately.
+      security:
+        - adminBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddIpRequest' }
+            example: { ip: 203.0.113.0/24 }
+      responses:
+        '201':
+          description: The whitelist after the addition.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EntryList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: That IP is already whitelisted.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: 203.0.113.0/24 is already whitelisted. }
+        '422': { $ref: '#/components/responses/HtaccessLockRejected' }
+        '500': { $ref: '#/components/responses/HtaccessWriteFailed' }
+
+    delete:
+      operationId: removeWhitelistedIp
+      x-audience: tech-support
+      tags: [Admin htaccess lock]
+      summary: Remove a whitelisted IP
+      description: |
+        The IP goes in the `ip` query parameter (CIDR slashes are fine there). Removing the entry that covers the
+        caller's own IP while the lock is on is refused (422) — it would lock the caller out; so is emptying the
+        whitelist while the lock is on.
+      security:
+        - adminBearer: []
+      parameters:
+        - name: ip
+          in: query
+          required: true
+          description: The address or CIDR to remove, as listed.
+          schema: { type: string, minLength: 1 }
+          example: 203.0.113.0/24
+      responses:
+        '200':
+          description: The whitelist after the removal.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EntryList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: That IP is not whitelisted.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: 203.0.113.0/24 is not whitelisted. }
+        '422': { $ref: '#/components/responses/HtaccessLockRejected' }
+        '500': { $ref: '#/components/responses/HtaccessWriteFailed' }
+
+  /admin-api/htaccess-lock/exempt-paths:
+    get:
+      operationId: listExemptPaths
+      x-audience: tech-support
+      tags: [Admin htaccess lock]
+      summary: List exempt paths
+      description: URL paths reachable from any IP while the lock is on (e.g. a health check or an inbound webhook).
+      security:
+        - adminBearer: []
+      responses:
+        '200':
+          description: The exempt paths.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EntryList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+    post:
+      operationId: addExemptPath
+      x-audience: tech-support
+      tags: [Admin htaccess lock]
+      summary: Add an exempt path
+      description: A URL path starting with `/` (no domain); a trailing `*` makes it a prefix. `/*` is refused.
+      security:
+        - adminBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddExemptPathRequest' }
+            example: { path: /health }
+      responses:
+        '201':
+          description: The exempt paths after the addition.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EntryList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: That path is already exempt.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: /health is already exempt. }
+        '422': { $ref: '#/components/responses/HtaccessLockRejected' }
+        '500': { $ref: '#/components/responses/HtaccessWriteFailed' }
+
+    delete:
+      operationId: removeExemptPath
+      x-audience: tech-support
+      tags: [Admin htaccess lock]
+      summary: Remove an exempt path
+      security:
+        - adminBearer: []
+      parameters:
+        - name: path
+          in: query
+          required: true
+          description: The path to remove, exactly as listed.
+          schema: { type: string, minLength: 1 }
+          example: /health
+      responses:
+        '200':
+          description: The exempt paths after the removal.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EntryList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: That path is not exempt.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: /health is not exempt. }
+        '422': { $ref: '#/components/responses/HtaccessLockRejected' }
+        '500': { $ref: '#/components/responses/HtaccessWriteFailed' }
+
+  /admin-api/htaccess-lock/self-test:
+    get:
+      operationId: getHtaccessLockSelfTest
+      x-audience: tech-support
+      tags: [Admin htaccess lock]
+      summary: Get the last self-test result
+      security:
+        - adminBearer: []
+      responses:
+        '200':
+          description: The most recent enforcement self-test.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SelfTestReport' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: The self-test has never been run.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: The self-test has never been run. }
+
+    post:
+      operationId: runHtaccessLockSelfTest
+      x-audience: tech-support
+      tags: [Admin htaccess lock]
+      summary: Run the enforcement self-test
+      description: |
+        Proves against the real web server that the lock is enforced (a server that ignores `.htaccess` fails
+        open, silently). Briefly swaps temporary blocks into `.htaccess` and requests the site over loopback, then
+        restores the file byte-for-byte. **Real visitors are blocked for a few seconds while it runs**, and the
+        call takes that long to answer. A failing test is still `200` — read `passed`.
+      security:
+        - adminBearer: []
+      responses:
+        '200':
+          description: The test report (also stored as the "last result").
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SelfTestReport' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/ping:
+    get:
+      operationId: ping
+      tags: [User API]
+      summary: Check that your token works
+      description: '**Bundle:** `auth-pat-bundle`. Authenticated with a **user** personal access token, not an admin token.'
+      x-bundle: auth-pat-bundle
+      security:
+        - userBearer: []
+      responses:
+        '200':
+          description: The token is valid.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StatusOk' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+components:
+  securitySchemes:
+    adminBearer:
+      type: http
+      scheme: bearer
+      description: Admin API token (`app:admin:create-api-token`). Bound to an Admin account; admin roles only.
+    userBearer:
+      type: http
+      scheme: bearer
+      description: A user's personal access token, created at `/account/tokens`.
+
+  parameters:
+    UserId:
+      name: id
+      in: path
+      required: true
+      description: User id.
+      schema: { type: integer, minimum: 1 }
+      example: 7
+
+  responses:
+    Unauthorized:
+      description: The bearer token is missing, invalid, revoked, expired, or belongs to an inactive account.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: Missing or invalid Authorization header. }
+    UserNotFound:
+      description: No user with that id.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: User not found. }
+    ValidationFailed:
+      description: One or more fields failed validation. Keys are field names.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ValidationErrors' }
+          example:
+            errors:
+              email: This email address is already registered.
+    Forbidden:
+      description: The token is valid but its admin is not allowed to call this endpoint (tech support only).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: Access denied. }
+    HtaccessLockRejected:
+      description: The request was refused and nothing was changed (bad input, or it would lock the caller out). `error` is the first reason; `errors` lists all of them.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/HtaccessLockRejected' }
+          example:
+            error: Your current IP (198.51.100.4) is not covered by the whitelist. Add it first, or this save would lock you out of the admin panel.
+            errors:
+              - Your current IP (198.51.100.4) is not covered by the whitelist. Add it first, or this save would lock you out of the admin panel.
+    HtaccessWriteFailed:
+      description: The input was fine but `.htaccess` could not be written (permissions, or hand-edited markers). Nothing was recorded as changed.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: 'Could not update .htaccess: /var/www/public/.htaccess has unbalanced Htaccess Lock markers; refusing to edit it.' }
+
+  schemas:
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error: { type: string, minLength: 1 }
+
+    ValidationErrors:
+      type: object
+      additionalProperties: false
+      required: [errors]
+      properties:
+        errors:
+          type: object
+          minProperties: 1
+          additionalProperties: { type: string, minLength: 1 }
+
+    StatusOk:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { const: ok }
+
+    AccountStatus:
+      type: string
+      enum: [active, inactive]
+
+    User:
+      type: object
+      additionalProperties: false
+      required: [id, email, name, status, roles, created_at]
+      properties:
+        id: { type: integer, minimum: 1 }
+        email: { type: string, format: email }
+        name: { type: string }
+        status: { $ref: '#/components/schemas/AccountStatus' }
+        roles:
+          type: array
+          minItems: 1
+          items: { type: string, enum: [ROLE_USER] }
+        created_at: { type: string, format: date-time }
+
+    UserList:
+      type: object
+      additionalProperties: false
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/User' }
+        meta:
+          type: object
+          additionalProperties: false
+          required: [total, page, per_page, total_pages]
+          properties:
+            total: { type: integer, minimum: 0 }
+            page: { type: integer, minimum: 1 }
+            per_page: { type: integer, minimum: 1, maximum: 100 }
+            total_pages: { type: integer, minimum: 1 }
+
+    UserActionResult:
+      type: object
+      additionalProperties: false
+      required: [status, user]
+      properties:
+        status: { const: ok }
+        user: { $ref: '#/components/schemas/User' }
+
+    CreateUserRequest:
+      type: object
+      required: [email, name, password]
+      properties:
+        email: { type: string, format: email }
+        name: { type: string, minLength: 1 }
+        password: { type: string, description: Must satisfy the configured password policy. }
+        role: { type: string, enum: [ROLE_USER], default: ROLE_USER }
+        status: { $ref: '#/components/schemas/AccountStatus' }
+
+    UpdateUserRequest:
+      type: object
+      minProperties: 1
+      properties:
+        email: { type: string, format: email }
+        name: { type: string, minLength: 1 }
+        role: { type: string, enum: [ROLE_USER] }
+        status: { $ref: '#/components/schemas/AccountStatus' }
+
+    InvitationRequest:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+
+    Invitation:
+      type: object
+      additionalProperties: false
+      required: [id, email, expires_at, used_at, created_at]
+      properties:
+        id: { type: integer, minimum: 1 }
+        email: { type: string, format: email }
+        expires_at: { type: string, format: date-time }
+        used_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+
+    AuditEntry:
+      type: object
+      additionalProperties: false
+      required: [id, actor, actor_type, ip, action, outcome, context, created_at]
+      properties:
+        id: { type: integer, minimum: 1 }
+        actor: { type: string }
+        actor_type: { type: string, enum: [user, admin] }
+        ip: { type: string }
+        action: { type: string }
+        outcome: { type: string, enum: [success, failure] }
+        context: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+
+    AuditLogList:
+      type: object
+      additionalProperties: false
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/AuditEntry' }
+        meta:
+          type: object
+          additionalProperties: false
+          required: [total, page, total_pages]
+          properties:
+            total: { type: integer, minimum: 0 }
+            page: { type: integer, minimum: 1 }
+            total_pages: { type: integer, minimum: 1 }
+
+    HtaccessLock:
+      type: object
+      additionalProperties: false
+      required: [enabled, status_code, error_file, ips, exempt_paths, file, your_ip]
+      properties:
+        enabled: { type: boolean }
+        status_code: { type: integer, enum: [403, 404], description: What blocked visitors get. 404 hides that the site is locked. }
+        error_file: { type: string, description: 'URL path of the page shown to blocked visitors; "" = empty body.' }
+        ips: { type: array, items: { type: string, minLength: 1 } }
+        exempt_paths: { type: array, items: { type: string, minLength: 1 } }
+        file:
+          type: object
+          additionalProperties: false
+          required: [exists, writable, has_block, in_sync, error]
+          description: Whether `.htaccess` agrees with the policy above (`in_sync`), and why not if it cannot be read.
+          properties:
+            exists: { type: boolean }
+            writable: { type: boolean }
+            has_block: { type: boolean }
+            in_sync: { type: boolean }
+            error: { type: [string, 'null'] }
+        your_ip: { type: [string, 'null'], description: The caller's IP as the server sees it. }
+
+    UpdateHtaccessLockRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        ips: { type: array, items: { type: string, minLength: 1 } }
+        exempt_paths: { type: array, items: { type: string, minLength: 1 } }
+        status_code: { type: integer, enum: [403, 404] }
+        error_file: { type: string }
+
+    AddIpRequest:
+      type: object
+      additionalProperties: false
+      required: [ip]
+      properties:
+        ip: { type: string, minLength: 1 }
+
+    AddExemptPathRequest:
+      type: object
+      additionalProperties: false
+      required: [path]
+      properties:
+        path: { type: string, minLength: 1 }
+
+    EntryList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: array, items: { type: string, minLength: 1 } }
+
+    HtaccessLockRejected:
+      type: object
+      additionalProperties: false
+      required: [error, errors]
+      properties:
+        error: { type: string, minLength: 1 }
+        errors: { type: array, minItems: 1, items: { type: string, minLength: 1 } }
+
+    SelfTestReport:
+      type: object
+      additionalProperties: false
+      required: [passed, ran_at, steps]
+      properties:
+        passed: { type: boolean }
+        ran_at: { type: string, format: date-time }
+        steps:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            additionalProperties: false
+            required: [label, passed, detail]
+            properties:
+              label: { type: string }
+              passed: { type: boolean }
+              detail: { type: string }

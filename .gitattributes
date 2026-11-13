@@ -1,0 +1,13 @@
+# Exclude agent/process scaffolding from distributed archives (git archive,
+# GitHub release tarballs, composer create-project dist installs). These files
+# stay in the repo for development; consumers get a clean Symfony app.
+/.agent         export-ignore
+/CLAUDE.md      export-ignore
+/.claudeignore  export-ignore
+/caddy          export-ignore
+/public/testing export-ignore
+
+# Shell scripts run on Linux: keep LF in every checkout (a Windows core.autocrlf=true
+# checkout turns them into CRLF, which breaks bash and ReleaseScriptsTest's line anchors).
+*.sh text eol=lf
+/.gitattributes export-ignore

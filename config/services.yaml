@@ -1,0 +1,196 @@
+# yaml-language-server: $schema=../vendor/symfony/dependency-injection/Loader/schema/services.schema.json
+
+# This file is the entry point to configure your own services.
+# Files in the packages/ subdirectory configure your dependencies.
+# See also https://symfony.com/doc/current/service_container/import.html
+
+# Put parameters here that don't need to change on each machine where the app is deployed
+# https://symfony.com/doc/current/best_practices.html#use-parameters-for-application-configuration
+parameters:
+    # Driver web app: business timezone when DRIVER_TIMEZONE is not set (twig.yaml driver_timezone).
+    driver_timezone_default: America/Vancouver
+    # The session handler reads/writes the SAME SQLite file as Doctrine because it is handed the very same
+    # DATABASE_URL (PdoSessionHandler parses the `sqlite:///path` URL form natively), so the two cannot diverge
+    # — including when an operator points DATABASE_URL at persistent storage, as the README advises. This used to
+    # be a hardcoded `var/data.db`, a file DATABASE_URL never named, so dev/prod sessions silently went to a
+    # stray file. (An interim fix derived `var/data_<env>.db` from the env name; that broke for any custom
+    # DATABASE_URL — ADR-061.) `resolve:` expands the %kernel.*% placeholders inside the URL.
+    app.session.dsn: '%env(resolve:DATABASE_URL)%'
+
+    # Htaccess Lock (ADR-059): the real .htaccess it edits (the docroot is, by definition, its directory),
+    # the lock file that serialises writers, and how long the self-test waits after each write for the web
+    # server to re-read the file.
+    app.htaccess_path: '%kernel.project_dir%/public/.htaccess'
+
+    # The hand-written OpenAPI spec behind the admin "API Docs" page (ADR-060) and the drift tests.
+    app.openapi_path: '%kernel.project_dir%/docs/api/openapi.yaml'
+    app.htaccess_lock.lock_path: '%kernel.project_dir%/var/htaccess-lock.lock'
+    # Serialises whole Htaccess Lock changes (read policy -> validate -> write file + config) across requests and
+    # processes (issue #44). A separate file from the .htaccess write lock above, which it encloses.
+    app.htaccess_lock.gate_lock_path: '%kernel.project_dir%/var/htaccess-lock-gate.lock'
+    app.htaccess_lock.settle_us: 1100000
+
+services:
+    # default configuration for services in *this* file
+    _defaults:
+        autowire: true      # Automatically injects dependencies in your services.
+        autoconfigure: true # Automatically registers your services as commands, event subscribers, etc.
+
+    # `dotenv:dump prod` compiles .env.local.php; bin/rbx-install.sh uses it instead of `composer dump-env` (ADR-068).
+    Symfony\Component\Dotenv\Command\DotenvDumpCommand:
+        arguments:
+            $projectDir: '%kernel.project_dir%'
+
+    # makes classes in src/ available to be used as services
+    # this creates a service per class whose id is the fully-qualified class name
+    App\:
+        resource: '../src/'
+        # Bundles under src/Bundle/ register their OWN services via their DI extension, and ONLY when
+        # registered in config/bundles.php. Excluding them here is what makes them truly optional:
+        # with a bundle unregistered its classes are not silently picked up as app services
+        # (FEATURE-138 — the 404/services-absent-when-uninstalled guarantee).
+        exclude:
+            - '../src/Bundle/'
+            # Meta/ holds dev-time ledger tools (the ADR tripwire, FEATURE-139) that are invoked
+            # directly by bin/ scripts and Meta tests, never as autowired services.
+            - '../src/Meta/'
+            # Maintenance/ is required directly by public/index.php before the autoloader exists (ADR-069).
+            - '../src/Maintenance/'
+
+    # Default binding for the PAT port: with auth-pat-bundle absent, core uses the null-object
+    # (no tokens => count 0, revoke no-op). When the bundle IS registered its compiler pass
+    # (RegisterAuthPatServicesPass) overrides this alias with the real repository. See ADR-010 / FEATURE-138.
+    App\Security\UserTokenRevokerInterface: '@App\Security\NullUserTokenRevoker'
+
+    # The `api` firewall (config/packages/security.yaml) references this stable alias. It defaults to
+    # the null authenticator (supports()=false → /api 404s with the bundle absent). The auth-pat-bundle
+    # compiler pass re-aliases it to the real TokenAuthenticator when registered. See FEATURE-138.
+    app.api_authenticator: '@App\Security\NullApiAuthenticator'
+
+    # The `user` firewall (config/packages/security.yaml) references this stable alias for the
+    # passwordless magic-link authenticator. It defaults to the null authenticator (supports()=false →
+    # /magic-link* 404s with the bundle absent, the routes being bundle-owned). The auth-magic-link-bundle
+    # compiler pass re-aliases it to the real MagicLinkAuthenticator when registered. See ADR-040 / FEATURE-140.
+    app.magic_link_authenticator: '@App\Security\NullMagicLinkAuthenticator'
+
+    # Default binding for the magic-link maintenance port: with auth-magic-link-bundle absent, core uses
+    # the null-object (invalidateUnusedForEmail no-op; pruning left the port in the ADR-048 shrink — the
+    # bundle's own MagicLinkTokenPruner handles it). When the bundle IS registered its compiler pass
+    # (RegisterAuthMagicLinkServicesPass) overrides this alias with the real repository. See ADR-040/048.
+    App\Service\MagicLinkTokenMaintainerInterface: '@App\Service\NullMagicLinkTokenMaintainer'
+
+    # The `user` firewall (config/packages/security.yaml) references this stable alias for the
+    # impersonation authenticator. It defaults to the null authenticator (supports()=false →
+    # /impersonate/* 404s with the bundle absent, the routes being bundle-owned). The
+    # auth-impersonate-bundle compiler pass re-aliases it to the real ImpersonationAuthenticator when
+    # registered. See ADR-041 / FEATURE-142.
+    app.impersonation_authenticator: '@App\Security\NullImpersonationAuthenticator'
+
+    # ADR-051: the session IS the "stay signed in" credential (no remember-me bearer cookie), so its
+    # lifetime is DB-configurable per request via a ttl closure. Subclass because a closure cannot be
+    # expressed in YAML args. Aliased below so the framework handler_id and any PdoSessionHandler
+    # type-hint both resolve here.
+    # The session handler opens its OWN PDO connection (it does not use Doctrine), so Doctrine's DBAL pragma
+    # middleware cannot reach it. Build that connection here so it gets the same SQLite baseline and — from the
+    # same DATABASE_URL — the same file (ADR-061).
+    App\Doctrine\SqlitePdoFactory:
+        arguments:
+            $projectDir: '%kernel.project_dir%'
+            $environment: '%kernel.environment%'
+
+    app.session.pdo:
+        class: PDO
+        factory: ['@App\Doctrine\SqlitePdoFactory', 'create']
+        arguments: ['%app.session.dsn%']
+
+    # lock_mode: 0 (LOCK_NONE) in EVERY environment. The default LOCK_TRANSACTIONAL keeps a SQLite write lock
+    # (BEGIN IMMEDIATE) on the session connection for the whole request; Doctrine's own writes in that same
+    # request (login_history, audit_log, …) run on a second connection to the same file and wait on it until
+    # busy_timeout expires, then fail with "database is locked". Verified with a real login: ~8 s then a 500.
+    # This was once only true in dev/acceptance because prod's sessions silently lived in a separate stray file
+    # (the hardcoded var/data.db bug); with sessions correctly in the one database it applies everywhere
+    # (ADR-061). Cost of no row lock: two simultaneous requests in ONE session are last-writer-wins.
+    App\Session\ConfigAwarePdoSessionHandler:
+        arguments:
+            $pdo: '@app.session.pdo'
+            $options: { db_table: 'sessions', lock_mode: 0 }
+
+    Symfony\Component\HttpFoundation\Session\Storage\Handler\PdoSessionHandler: '@App\Session\ConfigAwarePdoSessionHandler'
+
+    App\Api\OpenApiSpec:
+        arguments:
+            $path: '%app.openapi_path%'
+
+    App\Htaccess\HtaccessFile:
+        arguments:
+            $path: '%app.htaccess_path%'
+            $lockPath: '%app.htaccess_lock.lock_path%'
+
+    App\Htaccess\HtaccessLockMutex:
+        arguments:
+            $lockPath: '%app.htaccess_lock.gate_lock_path%'
+
+    App\Htaccess\HtaccessProbeInterface: '@App\Htaccess\CurlLoopbackProbe'
+
+    App\Htaccess\HtaccessLockSelfTest:
+        arguments:
+            $settleMicroseconds: '%app.htaccess_lock.settle_us%'
+
+    # add more service definitions when explicit configuration is needed
+    # please note that last definitions always *replace* previous ones
+
+    # Default binding for the webhook port: with auth-webhook-bundle absent, core uses the null-object
+    # (dispatch() is a no-op → no webhooks fire). When the bundle IS registered its compiler pass
+    # (RegisterAuthWebhookServicesPass) upgrades this alias to the real MessengerWebhookDispatcher, which
+    # enqueues a SendWebhookMessage; the bundle's SendWebhookMessageHandler runs the actual
+    # HttpWebhookDispatcher::send() on the Messenger worker. See ADR-042 / FEATURE-141.
+    App\Service\WebhookDispatcherInterface: '@App\Service\NullWebhookDispatcher'
+
+    # Default bindings for the user-2FA ports: with auth-2fa-bundle absent, core uses the null-objects
+    # (no challenge ever pending; no user has 2FA and there is nothing to reset). When the bundle IS
+    # registered its compiler pass (RegisterAuth2faServicesPass) overrides these aliases with the real
+    # TwoFactorGuard + TwoFactorSettingsRepository. See ADR-043 / FEATURE-143.
+    App\Security\TwoFactorChallengeGuardInterface: '@App\Security\NullTwoFactorGuard'
+    App\Security\UserTwoFactorManagerInterface: '@App\Security\NullUserTwoFactorManager'
+
+    # Default bindings for the security ports: with auth-security-bundle absent, core uses the null-objects
+    # (no endpoint is throttled; no account is ever locked and there is nothing to unlock). When the bundle
+    # IS registered its compiler pass (RegisterAuthSecurityServicesPass) overrides these aliases with the
+    # real EndpointRateLimiter + AccountLockoutRepository. See ADR-044 / FEATURE-144.
+    App\Security\EndpointRateLimiterInterface: '@App\Security\NullEndpointRateLimiter'
+    App\Security\AccountLockManagerInterface: '@App\Security\NullAccountLockManager'
+
+    # Default binding for the password-policy port: with auth-password-policy-bundle absent, core uses the
+    # null-object (nothing validated, no reuse checked, no change recorded, nothing ever expires). When the
+    # bundle IS registered its compiler pass (RegisterAuthPasswordPolicyServicesPass) overrides this alias
+    # with the real PasswordPolicyManager. See ADR-045 / FEATURE-145.
+    App\Security\PasswordPolicyManagerInterface: '@App\Security\NullPasswordPolicyManager'
+
+    # Default binding for the IP-whitelist port: with auth-ip-whitelist-bundle absent, core uses the
+    # null-object (no per-user override is ever stored or read; and — the login listener being bundle-owned —
+    # no IP restriction is enforced at all). When the bundle IS registered its compiler pass
+    # (RegisterAuthIpWhitelistServicesPass) overrides this alias with the real IpWhitelistManager.
+    # See ADR-046 / FEATURE-146.
+    App\Security\IpWhitelistManagerInterface: '@App\Security\NullIpWhitelistManager'
+
+when@test:
+    parameters:
+        # (app.session.dsn needs no test override: .env.test's DATABASE_URL already names var/test.db.)
+        # Never touch the real public/.htaccess from tests; the docroot is this directory.
+        app.htaccess_path: '%kernel.project_dir%/var/test-htaccess/.htaccess'
+        app.htaccess_lock.lock_path: '%kernel.project_dir%/var/test-htaccess.lock'
+        app.htaccess_lock.gate_lock_path: '%kernel.project_dir%/var/test-htaccess-gate.lock'
+        app.htaccess_lock.settle_us: 0
+    services:
+        # Public so functional tests can swap in a fake HTTP prober (no Apache runs under PHPUnit).
+        App\Htaccess\CurlLoopbackProbe:
+            public: true
+        # Public so the gate's own test can drive it directly, as every adapter does.
+        App\Htaccess\HtaccessLockGate:
+            autowire: true
+            public: true
+        App\Service\WebhookDispatcherInterface: '@App\Service\InMemoryWebhookDispatcher'
+        App\Service\InMemoryWebhookDispatcher:
+            public: true
+        # Driver web app tests: the scripted stand-in for the fvstexpress-admin API (framework.yaml when@test).
+        App\Tests\Support\Driver\FakeAdminApi: ~

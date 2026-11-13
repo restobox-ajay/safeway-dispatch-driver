@@ -1,0 +1,11 @@
+actor: AcceptanceTester
+suite_namespace: App\Tests\Acceptance
+modules:
+    enabled:
+        - PhpBrowser:
+            url: 'http://127.0.0.1:8899'
+            curl:
+                CURLOPT_TIMEOUT: 30
+        - \App\Tests\Support\Helper\DatabaseHelper
+        - \App\Tests\Support\Helper\ApiHelper
+        - \App\Tests\Support\Helper\ApiDocsHelper

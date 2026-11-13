@@ -1,0 +1,54 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}My Active Sessions{% endblock %}
+
+{% block body %}
+<h1>My Active Sessions</h1>
+
+{% for message in app.flashes('success') %}
+<div class="alert-success">{{ message }}</div>
+{% endfor %}
+
+{% for message in app.flashes('error') %}
+<div class="alert-error">{{ message }}</div>
+{% endfor %}
+
+<form method="POST" action="{{ path('app_admin_account_sessions_terminate_all') }}">
+    <input type="hidden" name="_token" value="{{ csrf_token('admin_session_terminate_all') }}">
+    <button type="submit">Logout Everywhere</button>
+</form>
+
+<table>
+    <thead>
+        <tr>
+            <th>IP Address</th>
+            <th>User Agent</th>
+            <th>Last Active</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for session in sessions %}
+        <tr>
+            <td class="session-ip">{{ session.ip }}</td>
+            <td class="session-ua">{{ session.userAgent }}</td>
+            <td class="session-last-active">{{ session.lastActiveAt|date('Y-m-d H:i:s') }}</td>
+            <td>
+                {% if session.sessionId == currentSessionId %}
+                    <span>(Current session)</span>
+                {% else %}
+                    <form method="POST" action="{{ path('app_admin_account_sessions_terminate', {id: session.id}) }}">
+                        <input type="hidden" name="_token" value="{{ csrf_token('admin_session_terminate_' ~ session.id) }}">
+                        <button type="submit">Terminate</button>
+                    </form>
+                {% endif %}
+            </td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="4">No active sessions.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,66 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Two-Factor Authentication{% endblock %}
+
+{% block body %}
+<h1>Two-Factor Authentication</h1>
+
+{% for message in app.flashes('success') %}
+    <div class="flash-success">{{ message }}</div>
+{% endfor %}
+
+{% if alreadyEnabled %}
+    <p class="2fa-status">Two-factor authentication is already <strong>enabled</strong> on your account.</p>
+    <p>To move to a new device, either disable 2FA and enable it again, or set up a new device
+       directly — your current authenticator keeps working until you confirm the new one.</p>
+
+    <p><a href="{{ path('app_2fa_setup', {reconfigure: 1}) }}" class="2fa-reconfigure-link">Set up a new device</a></p>
+
+    <form method="post" action="{{ path('app_2fa_disable') }}">
+        <input type="hidden" name="_token" value="{{ csrf_token('2fa_disable') }}">
+        <button type="submit" class="2fa-disable-btn">Disable 2FA</button>
+    </form>
+
+    <p><a href="{{ path('app_account_settings') }}">Back to settings</a></p>
+{% else %}
+    <h2>{{ reconfigure ? 'Set up a new device' : 'Enable Two-Factor Authentication' }}</h2>
+
+    {% if reconfigure %}
+        <div class="warning">
+            You already have 2FA enabled. Your current authenticator keeps working until you scan
+            this new code <em>and</em> confirm it below — at which point it is replaced.
+        </div>
+    {% endif %}
+
+    <p>Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.):</p>
+
+    <img class="qr-code" src="{{ qrCodeDataUri }}" alt="TOTP QR Code" width="200" height="200">
+
+    <p>Or enter this secret manually:</p>
+    <code class="totp-secret">{{ secret }}</code>
+
+    <hr>
+
+    <form method="post" action="{{ path('app_2fa_setup') }}">
+        <input type="hidden" name="_token" value="{{ csrf_token('2fa_setup') }}">
+
+        {% if error %}
+            <div class="error">{{ error }}</div>
+        {% endif %}
+
+        <div class="form-field">
+            <label for="_code">Enter the 6-digit code from your app to verify setup:</label>
+            <input type="text"
+                   id="_code"
+                   name="_code"
+                   inputmode="numeric"
+                   autocomplete="one-time-code"
+                   maxlength="6"
+                   placeholder="000000"
+                   required>
+        </div>
+
+        <button type="submit">Verify and Enable 2FA</button>
+    </form>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,20 @@
+namespace: App\Tests
+support_namespace: Support
+paths:
+    tests: tests
+    output: tests/_output
+    data: tests/Support/Data
+    support: tests/Support
+    envs: tests/_envs
+actor_suffix: Tester
+bootstrap: bootstrap.php
+extensions:
+    enabled:
+        - Codeception\Extension\RunFailed
+        - App\Tests\Support\Extension\PhpBuiltinServerExtension
+    config:
+        App\Tests\Support\Extension\PhpBuiltinServerExtension:
+            host: '127.0.0.1'
+            port: 8899
+            docroot: public
+            env: acceptance

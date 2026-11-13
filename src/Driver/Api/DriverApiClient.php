@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Driver\Api;
 
+use App\Driver\DispatchUrl;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\Mime\Part\DataPart;
@@ -31,7 +32,7 @@ final class DriverApiClient
         private readonly HttpClientInterface $http,
         private readonly DriverTokenStore $tokens,
         private readonly RequestStack $requests,
-        #[Autowire(env: 'DRIVER_API_BASE_URL')] private readonly string $baseUrl,
+        private readonly DispatchUrl $dispatch,
         #[Autowire(env: 'DRIVER_API_HOST_HEADER')] private readonly string $hostHeader,
     ) {}
 
@@ -196,8 +197,10 @@ final class DriverApiClient
     /** @param array<string, mixed> $options */
     private function send(string $method, string $path, array $options, ?DriverTokens $auth, ?string $deviceId = null, bool $raw = false): mixed
     {
-        if (trim($this->baseUrl) === '') {
-            throw new \LogicException('DRIVER_API_BASE_URL is not set: point it at safeway-dispatch\'s /driver-api/v1/ (see docs/DRIVER_APP.md).');
+        $base = $this->dispatch->apiBase();
+        if ($base === '') {
+            // No Dispatch address yet: set it on the Config page (/config) or as DISPATCH_URL in .env.local.
+            throw new DriverApiException('This app is not connected to Dispatch yet. Ask the office to set the Dispatch address.', 503, 'NOT_CONFIGURED');
         }
         $headers = [
             'Accept' => 'application/json, application/problem+json',
@@ -215,7 +218,7 @@ final class DriverApiClient
             $headers['Authorization'] = 'Bearer ' . $auth->getAccessToken();
         }
         $options['headers'] = ($options['headers'] ?? []) + $headers;
-        $options['base_uri'] = rtrim($this->baseUrl, '/') . '/';
+        $options['base_uri'] = $base;
         $options['timeout'] ??= 20;
         $options['max_duration'] ??= 60;
 

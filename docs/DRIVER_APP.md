@@ -22,8 +22,8 @@ phone browser ──► this app (Symfony, no database) ──► safeway-dispat
   used twice at once.
 - **/driver/api/<path>** passes only the calls the app makes (`DriverApiProxyController::ALLOWED`); writes need the
   page's CSRF token and carry the tap's own `Idempotency-Key`.
-- **Configuration** (`.env.local`): `APP_SECRET`, `APP_DOMAIN` (this app's host), `DRIVER_API_BASE_URL` (ends with
-  `/driver-api/v1/`), `DRIVER_API_HOST_HEADER` (only for a base URL that is an IP), `TRUSTED_PROXIES`.
+- **Configuration** (`.env.local`): `APP_SECRET`, `APP_DOMAIN` (this app's host), `DISPATCH_URL` (the Dispatch address;
+  `.env` defaults to the dev Dispatch; the app adds `/driver-api/v1/`), `DRIVER_API_HOST_HEADER` (only for an address that is an IP), `TRUSTED_PROXIES`.
 
 ## 2. Pages (spec + Figma)
 

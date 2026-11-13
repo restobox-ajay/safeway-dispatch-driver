@@ -17,9 +17,9 @@ composer install
 APP_SECRET=<64 random hex characters>
 # This app's own host name
 APP_DOMAIN=safeway-dispatch-driver.local
-# safeway-dispatch's Driver API — must end with /driver-api/v1/
-DRIVER_API_BASE_URL=http://safeway-dispatch.local/driver-api/v1/
-# Only when the base URL is an IP address: the safeway-dispatch vhost name to send as the Host header
+# The Safeway Dispatch address (the app adds /driver-api/v1/); .env defaults to the dev Dispatch
+DISPATCH_URL=http://safeway-dispatch.local
+# Only when DISPATCH_URL is an IP address: the safeway-dispatch vhost name to send as the Host header
 DRIVER_API_HOST_HEADER=
 # Proxies in front of this app, if any
 TRUSTED_PROXIES=
@@ -51,4 +51,4 @@ of `origin`); `git push dev-sfyappdev main` goes to dev only. After a push that 
 ssh safeway-dev 'cd ~/driver && ~/bin/composer install --no-dev -o && php bin/console cache:clear'
 ```
 
-The server's `.env.local` (gitignored) points `DRIVER_API_BASE_URL` at the dev Dispatch and has `DRIVER_GPS_TESTER=1`.
+`.env` sets `DISPATCH_URL` to the dev Dispatch (`https://dispatch.safeway-dispatch.dev.rp021.webhelplogin.com`); a server's `.env.local` can override it. The dev server's `.env.local` and has `DRIVER_GPS_TESTER=1`.

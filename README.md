@@ -39,3 +39,16 @@ on HTTPS pages (and on `localhost`).
 
 Vhost `safeway-dispatch-driver.local` → `public/` in `httpd-vhosts.conf`, plus the hosts entry
 `127.0.0.1 safeway-dispatch-driver.local`.
+
+## Dev server (push to deploy)
+
+`driver.safeway-dispatch.dev.rp021.webhelplogin.com` → `~/driver` on `sfyappdev@host021.webhelplogin.com:2200` (SSH alias
+`safeway-dev`, key `~/.ssh/safeway_dispatch_dev`). Same pattern as rbx-ghl-reporting: a plain git repo in the app folder with
+`receive.denyCurrentBranch = updateInstead`, no hook. `git push origin main` goes to GitHub **and** dev (dev is a second push URL
+of `origin`); `git push dev-sfyappdev main` goes to dev only. After a push that changes dependencies or config:
+
+```bash
+ssh safeway-dev 'cd ~/driver && ~/bin/composer install --no-dev -o && php bin/console cache:clear'
+```
+
+The server's `.env.local` (gitignored) points `DRIVER_API_BASE_URL` at the dev Dispatch and has `DRIVER_GPS_TESTER=1`.

@@ -693,6 +693,13 @@
         loadStops();
       });
     });
+    // "Test location: zone": a fixed list of zones across Canada (templates/driver/_gps_zones.html.twig).
+    var zone = q("[data-gps-test-zone]");
+    if (zone) zone.addEventListener("change", function (e) {
+      if (!e.target.value) return;
+      var v = e.target.value.split(",");
+      report(parseFloat(v[0]), parseFloat(v[1]));
+    });
     q("[data-gps-test-stop]").addEventListener("change", function (e) {
       if (!e.target.value) return;
       var v = e.target.value.split(",");

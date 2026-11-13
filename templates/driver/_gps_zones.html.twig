@@ -1,0 +1,156 @@
+{#
+    GPS tester only (DRIVER_GPS_TESTER=1): "Test location: zone" — test zones across Canada, by province, each a
+    centre point (lat, lng). Safeway has no delivery zones in its API, so this fixed list stands in for
+    fvstexpress-driver's zone list. Temporary: remove this file and its include in app.html.twig when no longer needed.
+#}
+{% set zones = {
+    'British Columbia — Lower Mainland': {
+        'Vancouver Downtown': '49.2827,-123.1207',
+        'Vancouver East': '49.2600,-123.0700',
+        'Vancouver South / West': '49.2280,-123.1300',
+        'North Vancouver': '49.3200,-123.0724',
+        'West Vancouver': '49.3286,-123.1602',
+        'Burnaby': '49.2488,-122.9805',
+        'New Westminster': '49.2057,-122.9110',
+        'Richmond': '49.1666,-123.1336',
+        'Delta': '49.0847,-123.0587',
+        'Tsawwassen': '49.0189,-123.0827',
+        'Surrey Central': '49.1913,-122.8490',
+        'Surrey Newton': '49.1300,-122.8430',
+        'Surrey Cloverdale': '49.1044,-122.7311',
+        'South Surrey / White Rock': '49.0253,-122.8029',
+        'Langley': '49.1044,-122.6604',
+        'Coquitlam': '49.2838,-122.7932',
+        'Port Coquitlam': '49.2625,-122.7811',
+        'Port Moody': '49.2849,-122.8678',
+        'Pitt Meadows': '49.2216,-122.6895',
+        'Maple Ridge': '49.2194,-122.6019',
+        'Abbotsford': '49.0504,-122.3045',
+        'Mission': '49.1330,-122.3095',
+        'Chilliwack': '49.1579,-121.9515',
+        'Hope': '49.3858,-121.4419',
+        'Squamish': '49.7016,-123.1558',
+        'Whistler': '50.1163,-122.9574'
+    },
+    'British Columbia — Vancouver Island': {
+        'Victoria': '48.4284,-123.3656',
+        'Langford / Colwood': '48.4500,-123.5000',
+        'Sooke': '48.3740,-123.7356',
+        'Duncan': '48.7787,-123.7079',
+        'Cobble Hill': '48.6858,-123.6061',
+        'Chemainus': '48.9244,-123.7170',
+        'Nanaimo': '49.1659,-123.9401',
+        'Parksville': '49.3197,-124.3122',
+        'Port Alberni': '49.2339,-124.8055',
+        'Courtenay / Comox': '49.6866,-124.9936',
+        'Campbell River': '50.0331,-125.2733'
+    },
+    'British Columbia — Interior & North': {
+        'Kamloops': '50.6745,-120.3273',
+        'Kelowna': '49.8880,-119.4960',
+        'West Kelowna': '49.8625,-119.5833',
+        'Vernon': '50.2671,-119.2720',
+        'Penticton': '49.4991,-119.5937',
+        'Salmon Arm': '50.7001,-119.2838',
+        'Merritt': '50.1113,-120.7862',
+        'Cranbrook': '49.5097,-115.7688',
+        'Nelson': '49.4928,-117.2948',
+        'Prince George': '53.9171,-122.7497',
+        'Williams Lake': '52.1417,-122.1417',
+        'Quesnel': '52.9784,-122.4927',
+        'Fort St. John': '56.2524,-120.8466',
+        'Dawson Creek': '55.7596,-120.2353',
+        'Terrace': '54.5182,-128.6032',
+        'Prince Rupert': '54.3150,-130.3208'
+    },
+    'Alberta': {
+        'Calgary': '51.0447,-114.0719',
+        'Edmonton': '53.5461,-113.4938',
+        'Red Deer': '52.2690,-113.8116',
+        'Lethbridge': '49.6956,-112.8451',
+        'Medicine Hat': '50.0405,-110.6764',
+        'Grande Prairie': '55.1707,-118.7947',
+        'Fort McMurray': '56.7267,-111.3810',
+        'Airdrie': '51.2917,-114.0144',
+        'Banff': '51.1784,-115.5708'
+    },
+    'Saskatchewan': {
+        'Regina': '50.4452,-104.6189',
+        'Saskatoon': '52.1332,-106.6700',
+        'Prince Albert': '53.2033,-105.7531',
+        'Moose Jaw': '50.3934,-105.5519',
+        'Swift Current': '50.2851,-107.7972'
+    },
+    'Manitoba': {
+        'Winnipeg': '49.8951,-97.1384',
+        'Brandon': '49.8485,-99.9501',
+        'Steinbach': '49.5258,-96.6839',
+        'Thompson': '55.7435,-97.8558'
+    },
+    'Ontario': {
+        'Toronto': '43.6532,-79.3832',
+        'Mississauga': '43.5890,-79.6441',
+        'Brampton': '43.7315,-79.7624',
+        'Ottawa': '45.4215,-75.6972',
+        'Hamilton': '43.2557,-79.8711',
+        'London': '42.9849,-81.2453',
+        'Kitchener / Waterloo': '43.4516,-80.4925',
+        'Windsor': '42.3149,-83.0364',
+        'Barrie': '44.3894,-79.6903',
+        'Kingston': '44.2312,-76.4860',
+        'Sudbury': '46.4917,-80.9930',
+        'Thunder Bay': '48.3809,-89.2477',
+        'Sault Ste. Marie': '46.5219,-84.3461'
+    },
+    'Quebec': {
+        'Montreal': '45.5017,-73.5673',
+        'Quebec City': '46.8139,-71.2080',
+        'Laval': '45.6066,-73.7124',
+        'Gatineau': '45.4765,-75.7013',
+        'Sherbrooke': '45.4042,-71.8929',
+        'Trois-Rivières': '46.3432,-72.5477',
+        'Saguenay': '48.4284,-71.0685'
+    },
+    'New Brunswick': {
+        'Fredericton': '45.9636,-66.6431',
+        'Moncton': '46.0878,-64.7782',
+        'Saint John': '45.2733,-66.0633'
+    },
+    'Nova Scotia': {
+        'Halifax': '44.6488,-63.5752',
+        'Sydney': '46.1368,-60.1942',
+        'Truro': '45.3650,-63.2861'
+    },
+    'Prince Edward Island': {
+        'Charlottetown': '46.2382,-63.1311',
+        'Summerside': '46.3934,-63.7902'
+    },
+    'Newfoundland and Labrador': {
+        "St. John's": '47.5615,-52.7126',
+        'Corner Brook': '48.9500,-57.9522',
+        'Happy Valley-Goose Bay': '53.3017,-60.3261'
+    },
+    'Yukon': {
+        'Whitehorse': '60.7212,-135.0568',
+        'Dawson City': '64.0601,-139.4320'
+    },
+    'Northwest Territories': {
+        'Yellowknife': '62.4540,-114.3718',
+        'Inuvik': '68.3607,-133.7230'
+    },
+    'Nunavut': {
+        'Iqaluit': '63.7467,-68.5170',
+        'Rankin Inlet': '62.8090,-92.0853'
+    }
+} %}
+<div class="form-group">
+    <label for="gps-test-zone">Test location: zone</label>
+    <select id="gps-test-zone" class="input" data-gps-test-zone>
+        <option value="">Choose a zone…</option>
+        {% for province, places in zones %}
+            <optgroup label="{{ province }}">
+                {% for name, point in places %}<option value="{{ point }}">{{ name }}</option>{% endfor %}
+            </optgroup>
+        {% endfor %}
+    </select>
+</div>

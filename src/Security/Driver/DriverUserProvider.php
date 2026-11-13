@@ -11,8 +11,8 @@ use Symfony\Component\Security\Core\User\UserInterface;
 use Symfony\Component\Security\Core\User\UserProviderInterface;
 
 /**
- * The /driver firewall's users come from this browser session's driver_api_session row. When the row is
- * gone (logout, or the admin API refused to renew the tokens) the driver is signed out on the next request.
+ * The signed-in driver, rebuilt on every request from the driver object kept with this session's API tokens
+ * (DriverTokenStore). A session without tokens has no driver.
  *
  * @implements UserProviderInterface<DriverUser>
  */
@@ -22,12 +22,12 @@ final class DriverUserProvider implements UserProviderInterface
 
     public function loadUserByIdentifier(string $identifier): UserInterface
     {
-        $row = $this->tokens->current();
-        if ($row === null || DriverUser::identifierFor($row->getDriverId()) !== $identifier) {
+        $tokens = $this->tokens->current();
+        if ($tokens === null || DriverUser::identifierFor($tokens->getDriverId()) !== $identifier) {
             throw new UserNotFoundException();
         }
 
-        return new DriverUser($row->getDriver());
+        return new DriverUser($tokens->getDriver());
     }
 
     public function refreshUser(UserInterface $user): UserInterface

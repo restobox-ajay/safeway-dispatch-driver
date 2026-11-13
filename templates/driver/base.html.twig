@@ -3,23 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#10131a">
-    <title>{% block title %}FVST Driver{% endblock %}</title>
+    <meta name="theme-color" content="#ffffff">
+    <title>{% block title %}Safeway Driver{% endblock %}</title>
     <link rel="manifest" href="/driver-app/manifest.webmanifest">
-    <link rel="icon" href="/driver-app/img/icon.svg" type="image/svg+xml">
+    <link rel="icon" href="/driver-app/img/icon-192.png" type="image/png">
     <link rel="apple-touch-icon" href="/driver-app/img/icon-192.png">
-    <link rel="stylesheet" href="/driver-app/css/style.css">
-    <link rel="stylesheet" href="/driver-app/css/app.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap">
+    <link rel="stylesheet" href="/driver-app/css/safeway.css">
     {% block head %}{% endblock %}
 </head>
 <body{% block body_class %}{% endblock %}>
 {% block body %}
-<div class="phone-frame-wrap">
-    <div class="phone-frame">
-        <div class="app-screen">
-            {% block screen %}{% endblock %}
-        </div>
-    </div>
+<div class="app-screen">
+    {% block screen %}{% endblock %}
 </div>
 {% endblock %}
 {% block scripts %}{% endblock %}

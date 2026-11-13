@@ -3,75 +3,29 @@ framework:
     secret: '%env(APP_SECRET)%'
     csrf_protection: true
 
-    # FEATURE-131 (review C17): pin the trusted host patterns so the app never trusts an
-    # attacker-supplied Host header (host-header injection -> password-reset link poisoning,
-    # off-origin post-2FA redirects). The patterns are derived from the app's three real-host
-    # env vars — the DEFAULT_URI host plus ADMIN_DOMAIN and APP_DOMAIN (single-domain sets both
-    # to the same host). A request whose Host matches none is rejected with 400.
-    # The Kernel boot guard (src/Kernel.php) refuses to start unless all three are set, so no
-    # empty pattern can reach this list (an empty trusted_hosts regex would match every host and
-    # silently disable the guard). See ADR-029 (amends ADR-019).
-    # regex_quote: the domains are escaped (App\Config\RegexQuoteEnvVarProcessor). Unescaped, every "." matched any
-    # character and a registrable lookalike (dots replaced by "-") passed — audit #1.
+    # Only this app's own host is trusted (host-header injection guard).
     trusted_hosts:
-        - '^%env(regex_quote:key:host:url:DEFAULT_URI)%$'
-        - '^%env(regex_quote:ADMIN_DOMAIN)%$'
         - '^%env(regex_quote:APP_DOMAIN)%$'
 
-    # Note that the session will be started ONLY if you read or write from it.
+    # Behind a TLS-terminating proxy, list it so X-Forwarded-Proto/For are honoured (Secure cookie, driver IP).
+    trusted_proxies: '%env(default::TRUSTED_PROXIES)%'
+    trusted_headers: ['x-forwarded-for', 'x-forwarded-proto', 'x-forwarded-host', 'x-forwarded-port']
+
+    # No database: sessions are PHP session files under var/sessions. The session holds the driver's Safeway
+    # API tokens (DriverTokenStore). PHP's files handler locks the session file for the whole request, so one
+    # driver's requests never refresh the rotating token at the same time.
     session:
-        handler_id: App\Session\ConfigAwarePdoSessionHandler
-        # ADR-051: session lifetime. PHP's 24-minute gc_maxlifetime default made an admin re-enter
-        # their TOTP after 24 idle minutes (2FA verification is session-scoped), which is far too
-        # aggressive for an admin panel. The AUTHORITATIVE server-side window is resolved per request
-        # from the DB by App\Session\SessionTtlResolver (baseline `session.idle_lifetime_minutes`,
-        # or `session.remember_me_lifetime_days` for a session that ticked "Remember me") and applied
-        # as the handler's ttl, which re-stamps sess_lifetime on every request so the window slides.
-        #
-        # gc_maxlifetime here is only the FALLBACK used when no ttl closure applies; it is kept in
-        # step with the baseline default (180 min).
-        gc_maxlifetime: 10800
-        # cookie_lifetime is a browser-side hint only — the server TTL above decides validity. It must
-        # be >= the largest server window or the browser would drop the cookie first and cut a
-        # "remember me" session short, so it is set to the 21-day default. A session whose server TTL
-        # is shorter simply presents a cookie the server has already expired (harmless: new session).
-        # Raising `session.remember_me_lifetime_days` beyond 21 days requires raising this too.
-        cookie_lifetime: 1814400
-        # FEATURE-089 (M4): pin cookie flags explicitly instead of relying on
-        # framework defaults.
-        # - cookie_secure: 'auto' emits the Secure flag on HTTPS requests only.
-        #   The stack also serves http://auth.localhost, so a hard `true` would
-        #   stop the cookie being sent over http and break local/dev. In
-        #   production (HTTPS) the Secure flag is set automatically.
-        # - cookie_httponly: blocks JS access to the session cookie (XSS theft).
-        # - cookie_samesite: 'lax' mitigates CSRF on top of the per-form tokens.
+        handler_id: session.handler.native_file
+        save_path: '%kernel.project_dir%/var/sessions/%kernel.environment%'
+        # A driver stays signed in for 30 days of use (the Safeway refresh token also lives 30 days).
+        cookie_lifetime: 2592000
+        gc_maxlifetime: 2592000
         cookie_secure: auto
         cookie_httponly: true
         cookie_samesite: lax
-        # FEATURE-091 (separate-domain mode): the session cookie's Domain
-        # attribute. Empty (the default) scopes the cookie to the exact host
-        # that set it, so an admin-host session cookie is never sent to the app
-        # host (and vice versa) — per-host isolation. Operators serving sibling
-        # subdomains that should share a session can set SESSION_COOKIE_DOMAIN.
-        cookie_domain: '%env(SESSION_COOKIE_DOMAIN)%'
-
-    # trusted_proxies guidance (FEATURE-089 / M4):
-    # `cookie_secure: auto` decides "is this request HTTPS?" from the request.
-    # Behind a TLS-terminating reverse proxy (Caddy/nginx) the app sees plain
-    # HTTP unless it trusts the proxy's forwarded headers. In production set:
-    #   trusted_proxies: '127.0.0.1,REMOTE_ADDR'   # or the proxy CIDR
-    #   trusted_headers: ['x-forwarded-for', 'x-forwarded-proto', 'x-forwarded-host', 'x-forwarded-port']
-    # so X-Forwarded-Proto=https is honoured and the Secure flag is emitted.
-    #trusted_proxies: '%env(TRUSTED_PROXIES)%'
-
-    #esi: true
-    #fragments: true
 
 when@test:
     framework:
         test: true
         session:
             storage_factory_id: session.storage.factory.mock_file
-        # Driver web app tests: the fvstexpress-admin API is a scripted fake (tests/Support/Driver/FakeAdminApi).
-        http_client:
-            mock_response_factory: App\Tests\Support\Driver\FakeAdminApi

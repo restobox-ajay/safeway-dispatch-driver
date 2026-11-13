@@ -1,18 +1,17 @@
 {
-  "name": "FVST Express Driver",
-  "short_name": "FVST Driver",
-  "description": "Tasks, status updates and proof of delivery for FVST Express drivers.",
+  "name": "Safeway Tire Driver",
+  "short_name": "Safeway Driver",
+  "description": "Upcoming destinations, notes and proof of delivery for Safeway Tire drivers.",
   "id": "/driver/",
   "start_url": "/driver/tasks",
   "scope": "/driver/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#10131a",
-  "theme_color": "#10131a",
+  "background_color": "#f8f8fb",
+  "theme_color": "#ffffff",
   "icons": [
     { "src": "/driver-app/img/icon-192.png", "sizes": "192x192", "type": "image/png" },
     { "src": "/driver-app/img/icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "/driver-app/img/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
-    { "src": "/driver-app/img/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+    { "src": "/driver-app/img/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

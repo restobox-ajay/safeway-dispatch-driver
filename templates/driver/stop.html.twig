@@ -1,398 +1,106 @@
 {% extends 'driver/app.html.twig' %}
-{% import 'driver/_icons.html.twig' as icon %}
+{% import 'driver/_stop.html.twig' as ui %}
 {#
-    One stop — task-detail-pickup / -delivery / -pickup-done / -delivery-done mockups, following the
-    stop's status like the Android StopScreen (FEATURE-196…198). Taps are handled by stop.js.
+    Figma "Destination Details" (driver): Company, Stop, Address (opens Google Maps directions), Phone Number,
+    Special Instructions, Products, then "Mark Complete / Set Status". The spec adds: contact person, estimated
+    ETA, the special note from dispatch (internal). The driver's steps (On my way / Arrived / Undo) follow the
+    stop's next_allowed and can_undo from the Safeway Driver API.
 #}
-{% set orders = stop.orders ?? [] %}
-{# Each name with its JOB id: names can gain a revision suffix, the id never changes (GitHub #27). #}
-{% set names = orders|map(o => o.name ~ ' · ' ~ o.reference) %}
-{% set order_line = names|length <= 2 ? names|join(' & ') : names|slice(0, 2)|join(' & ') ~ ', +' ~ (names|length - 2) ~ ' orders' %}
-{% set times = {} %}
-{% for t in stop.timeline ?? [] %}{% set times = times|merge({(t.status): t.at|driver_time}) %}{% endfor %}
-{% set recipient = (stop.contacts ?? [])|filter(c => c.role == 'recipient')|first %}
-{% set sender = (stop.contacts ?? [])|filter(c => c.role == 'sender')|first %}
-{% set pickup_contact = (stop.contacts ?? [])|first %}
-{% set maps_url = 'https://www.google.com/maps/search/?api=1&query=' ~ stop.address|url_encode %}
-{% set failed_url = orders is empty ? null : path('app_driver_failed', {stopKey: stop.stop_key, ref: orders[0].reference}) %}
 
-{% block title %}{{ stop.address ?? 'Stop' }} · FVST Driver{% endblock %}
-
-{% block topbar_left %}
-    <a class="topbar-icon-btn" href="{{ path('app_driver_tasks') }}" aria-label="Back" data-back-to-tasks>{{ icon.back() }}</a>
-{% endblock %}
-
-{% macro stepper(steps, labels, times) %}
-    <div class="status-stepper">
-        {% for s in steps %}
-            <div class="step{{ s.state == 'done' ? ' done' : (s.state == 'current' ? ' current' : '') }}">
-                <span class="step-dot">{{ s.state == 'done' ? '✓' : '' }}</span>
-                <div class="step-label"><span class="step-name">{{ labels[s.status] ?? s.status }}</span>{% if times[s.status] is defined %} <span class="step-time">{{ times[s.status] }}</span>{% endif %}</div>
-            </div>
-        {% endfor %}
-    </div>
-{% endmacro %}
+{% block title %}{{ stop.company }} — Safeway Driver{% endblock %}
+{% block crumbs %} / <a href="{{ path('app_driver_tasks') }}">List Deliveries</a> / <span>Destination Details</span>{% endblock %}
+{% block page_title %}Destination Details{% endblock %}
 
 {% block content %}
-<script type="application/json" id="stop-data">{{ {
-    stop_key: stop.stop_key,
-    leg: stop.leg,
-    status: stop.status,
-    can_undo: stop.can_undo ?? false,
-    address: stop.address,
-    orders: orders|map(o => {reference: o.reference, name: o.name, package_count: o.package_count ?? 0, sender: o.sender ?? null, recipient: o.recipient ?? null, dropoff_stop_key: o.dropoff_stop_key ?? null}),
-    labels: labels,
-    tasks_url: path('app_driver_tasks')
-}|json_encode|raw }}</script>
-
-{% if not done %}
-    {# ---------------- Active stop ---------------- #}
-    <div class="detail-header" style="padding:0;">
-        <div class="detail-header-title">
-            <h1>
-                {% if stop.urgent ?? false %}<span class="urgency-flag" title="Urgent" aria-label="Urgent">⚑</span> {% endif %}
-                <span class="kc-leg-tag kc-leg-{{ pickup ? 'pickup' : 'dropoff' }}">{{ pickup ? 'PICK' : 'DROP' }}</span>
-                <a class="addr-nav-link" href="{{ maps_url }}" target="_blank" rel="noopener" aria-label="Open {{ stop.address }} in Maps app">{{ stop.address }}{% if not pickup and (stop.buzzer ?? null) %}, Buzzer: {{ stop.buzzer }}{% endif %}<span class="addr-nav-circle">{{ icon.navigate() }}</span></a>
-            </h1>
+    <div class="card" data-stop-id="{{ stop.id }}">
+        <div class="field">
+            <div class="field-label">Company:</div>
+            <div class="field-value">{% if stop.rush %}<span class="rush" title="Rush">⚑</span> {% endif %}{{ ui.company(stop) }} {{ ui.status(stop) }}</div>
         </div>
-    </div>
-
-    <div class="info-card">
-        <div class="info-row">
-            {% if names|length > 1 %}
-                <button type="button" class="detail-header-order order-name-big" data-open="orders">{{ order_line }}</button>
-            {% else %}
-                <span class="detail-header-order order-name-big">{{ order_line }}</span>
-            {% endif %}
+        <div class="field">
+            <div class="field-label">Stop:</div>
+            <div class="field-value">#{{ stop.position }}</div>
         </div>
-        {% if pickup %}
-            <div class="info-row">
-                <span class="info-value">{{ [stop.business ?? null, pickup_contact.name ?? null]|filter(v => v)|join(', ') }}
-                    {% if pickup_contact %}<button type="button" class="info-contact-btn" data-open="person-0" aria-label="Contact {{ pickup_contact.name }}">{{ icon.person() }}</button>{% endif %}
-                </span>
-            </div>
-        {% else %}
-            <div class="info-row">
-                <span class="info-value">
-                    {% if recipient %}Recipient: {{ recipient.name }} <button type="button" class="info-contact-btn" data-open="person-recipient" aria-label="Contact {{ recipient.name }}">{{ icon.person() }}</button>{% endif %}
-                    {% if sender %}&nbsp; Sender: {{ sender.name }} <button type="button" class="info-contact-btn" data-open="person-sender" aria-label="Contact {{ sender.name }}">{{ icon.person() }}</button>{% endif %}
-                </span>
-            </div>
+        <div class="field">
+            <div class="field-label">Address:</div>
+            <div class="field-value">{{ ui.address(stop) }}</div>
+        </div>
+        {% if stop.phone %}
+        <div class="field">
+            <div class="field-label">Phone Number:</div>
+            <div class="field-value">{% if stop.tel %}<a class="field-link" href="{{ stop.tel }}">{{ stop.phone }}</a>{% else %}{{ stop.phone }}{% endif %}</div>
+        </div>
         {% endif %}
-        <div class="info-row"><span class="info-value">{{ (stop.window ?? null)|driver_window }}{% if not pickup and (stop.deadline ?? null) %} · <strong>Due by {{ stop.deadline|driver_time }}</strong>{% endif %}</span></div>
-        {% set note = stop.note ?? stop.no_response_instructions ?? null %}
-        {% if note %}
-            <div class="info-row info-row-start"><span class="info-label">Note:</span><span class="info-value">{{ note }}</span></div>
+        {% if stop.contact %}
+        <div class="field">
+            <div class="field-label">Contact Person:</div>
+            <div class="field-value">{{ stop.contact }}</div>
+        </div>
         {% endif %}
-        {% if stop.banner ?? null %}
-            <div class="order-message">
-                <span class="order-message-icon">✉</span>
-                <span class="order-message-text"><strong>{{ stop.banner.subject ?? '' }}</strong> — {{ stop.banner.body ?? '' }}</span>
-            </div>
+        <div class="field">
+            <div class="field-label">Estimated ETA:</div>
+            <div class="field-value">{{ stop.eta ?: '–' }}{{ stop.window ? ' · window ' ~ stop.window }}</div>
+        </div>
+        <div class="field">
+            <div class="field-label">Special Instructions:</div>
+            <div class="field-value">{{ stop.instructions ?: '—' }}</div>
+        </div>
+        {% if stop.dispatch_notes %}
+        <div class="field">
+            <div class="field-label">Note from Dispatch:</div>
+            <div class="field-value">{% for n in stop.dispatch_notes %}<div>{{ n.text }}</div>{% endfor %}</div>
+        </div>
         {% endif %}
-    </div>
-
-    <div class="info-card">
-        {{ _self.stepper(steps, labels, times) }}
-
-        {% if pickup and stop.status == 'picking_up' %}
-            <div class="pickup-checklist" data-pickup-checklist>
-                {% for o in orders %}
-                    <label class="pickup-checklist-row" data-reference="{{ o.reference }}" data-items="{{ o.package_count ?? 0 }}">
-                        <input type="checkbox" data-pickup-check aria-label="Mark {{ o.name }} picked up">
-                        <span class="pickup-checklist-name">{{ o.name }} <span class="text-faint" style="font-size:11px;">{{ o.reference }}</span></span>
-                        <button type="button" class="pickup-checklist-count" data-order-info="{{ o.reference }}" aria-label="View {{ o.name }} details">{{ o.package_count ?? 0 }} item{{ (o.package_count ?? 0) == 1 ? '' : 's' }}</button>
-                        <button type="button" class="pickup-checklist-info" data-order-info="{{ o.reference }}" aria-label="View {{ o.name }} details">ⓘ</button>
-                    </label>
+        <div class="field">
+            <div class="field-label">Products:</div>
+            <div class="field-value">{{ ui.products(stop) }}</div>
+        </div>
+        {% if stop.my_notes %}
+        <div class="field">
+            <div class="field-label">Your Notes:</div>
+            <div class="field-value">{% for n in stop.my_notes %}<div>{{ n.reason_code ? (n.reason_code|replace({'_': ' '})|capitalize ~ ': ') }}{{ n.text }}</div>{% endfor %}</div>
+        </div>
+        {% endif %}
+        {% if stop.done %}
+        <div class="field">
+            <div class="field-label">Completed:</div>
+            <div class="field-value">{{ stop.completed_at ?: 'Waiting to send' }}{{ stop.recipient_name ? ' · received by ' ~ stop.recipient_name }}</div>
+        </div>
+        {% if stop.photos %}
+        <div class="field">
+            <div class="field-label">Photo:</div>
+            <div class="field-value photo-row">
+                {% for p in stop.photos %}
+                    {% if p.photo_id is defined and p.photo_id and not p.pending %}
+                        <img src="{{ path('app_driver_photo', {photoId: p.photo_id}) }}" alt="Proof photo {{ loop.index }}" width="96" height="96" loading="lazy">
+                    {% else %}
+                        <span class="text-faint">Photo {{ loop.index }} still uploading</span>
+                    {% endif %}
                 {% endfor %}
             </div>
-        {% endif %}
-
-        {% set next = (stop.next_allowed ?? [])|first %}
-        {% if pickup or stop.status == 'picked_up' %}
-            <div class="action-row" style="margin-top:12px;">
-                {% if stop.can_undo ?? false %}<button type="button" class="btn btn-secondary status-undo-btn" data-undo>Undo</button>{% endif %}
-                {% if pickup and stop.status == 'picking_up' %}
-                    <button type="button" class="btn btn-primary" data-mark-picked-up disabled>Mark Picked Up</button>
-                {% elseif next %}
-                    <button type="button" class="btn btn-primary" data-advance="{{ next }}">Mark {{ labels[next] ?? next }}</button>
-                {% endif %}
-            </div>
-        {% elseif stop.can_undo ?? false %}
-            <div class="action-row" style="margin-top:12px;"><button type="button" class="btn btn-secondary status-undo-btn" data-undo>Undo</button></div>
-        {% endif %}
-
-        {% if not pickup and stop.status == 'in_transit' %}
-            <div data-proof-of-delivery>
-                <h3 style="margin-top:16px;">Proof of delivery <span class="badge badge-danger" style="margin-left:4px;">Required</span></h3>
-                {# Only while the phone is offline (app.js toggles it), so it doesn't read as a warning when uploads work (GitHub #19). #}
-                <div class="offline-note" data-offline-only hidden>⚠ No signal? Photos still save — they'll auto-upload once you're back online.</div>
-                <div class="photo-upload-row">
-                    {# Opens the in-app camera (task-camera.html), which burns the time and address into the photo.
-                       Where the browser has no camera access, the phone's own camera is used through the file input
-                       and the same stamp is added before upload (stop.js). #}
-                    <button type="button" class="btn btn-secondary" data-photo-button data-open-camera>
-                        <span data-photo-button-label>📷 Take Photo (Minimum 1)</span>
-                    </button>
-                    <input type="file" accept="image/*" capture="environment" data-photo-input hidden>
-                </div>
-                <div class="photo-grid" data-photo-grid></div>
-                <div class="form-group">
-                    <label for="left-where">Where was it left? <span class="badge badge-danger" style="margin-left:4px;">Required</span></label>
-                    <select id="left-where-preset" data-left-where-preset style="margin-bottom:8px;">
-                        <option value="">Quick choices…</option>
-                        <option>Front door</option>
-                        <option>Back door</option>
-                        <option>Concierge</option>
-                        <option>Mailroom</option>
-                        <option>Handed over</option>
-                    </select>
-                    <input type="text" id="left-where" data-left-where placeholder="e.g. Front desk, concierge, porch">
-                </div>
-                <div class="form-group">
-                    <label>Customer contacted?</label>
-                    <div class="toggle-group" data-contact-toggle>
-                        <button type="button" class="active" data-value="not_needed">Not needed</button>
-                        <button type="button" data-value="called">Called</button>
-                        <button type="button" data-value="texted">Texted</button>
-                    </div>
-                </div>
-                <div class="form-group mb-0">
-                    <label for="recipient-name">Recipient name <span class="text-faint">(optional)</span></label>
-                    <input type="text" id="recipient-name" data-recipient-name placeholder="Who received it, if worth noting">
-                </div>
-            </div>
-        {% endif %}
-    </div>
-
-    {% if not pickup %}
-        <div class="action-row">
-            <button type="button" class="btn btn-primary" data-mark-delivered disabled>Mark Delivered</button>
         </div>
-        {# What Mark Delivered is still waiting for, so a disabled button is never silent (GitHub #8, #9). #}
-        <p class="deliver-hint" data-deliver-hint hidden></p>
-        {% if failed_url %}<a href="{{ failed_url }}" class="btn btn-danger btn-block" style="margin-top:8px;">Delivery failed / report a problem</a>{% endif %}
-    {% endif %}
+        {% endif %}
+        {% endif %}
 
-    <div class="info-card">
-        <h3>Contact</h3>
-        <div class="action-row">
-            {% if pickup %}
-                <button type="button" class="btn btn-secondary" data-open="picker-call">{{ icon.phone() }} Call</button>
-                <button type="button" class="btn btn-secondary" data-open="picker-text">{{ icon.text() }} Text</button>
-            {% elseif recipient.phone ?? null %}
-                <a class="btn btn-secondary" href="tel:{{ recipient.phone }}">{{ icon.phone() }} Call</a>
-                <a class="btn btn-secondary" href="sms:{{ recipient.phone }}">{{ icon.text() }} Text</a>
-            {% else %}
-                <button type="button" class="btn btn-secondary" disabled>{{ icon.phone() }} Call</button>
-                <button type="button" class="btn btn-secondary" disabled>{{ icon.text() }} Text</button>
+        <div class="alert alert-danger" data-tap-error hidden role="alert"></div>
+        <div class="stack">
+            {% if 'on_my_way' in stop.next_allowed %}
+                <button type="button" class="btn btn-primary btn-block" data-stop-tap="on-my-way">On My Way</button>
+            {% endif %}
+            {% if 'arrived' in stop.next_allowed %}
+                <button type="button" class="btn btn-primary btn-block" data-stop-tap="arrived">Arrived</button>
+            {% endif %}
+            {% if 'complete' in stop.next_allowed %}
+                <a class="btn btn-primary btn-block" href="{{ path('app_driver_complete', {id: stop.id}) }}">Mark Complete / Set Status</a>
+            {% endif %}
+            {% if 'note' in stop.next_allowed %}
+                <a class="btn btn-warning btn-block" href="{{ path('app_driver_note', {id: stop.id}) }}">Add Note</a>
+            {% endif %}
+            {% if stop.can_undo %}
+                <button type="button" class="btn btn-secondary btn-block" data-stop-tap="undo">Undo Last Step</button>
             {% endif %}
         </div>
     </div>
-    {% if pickup %}
-        <a class="btn btn-secondary btn-block" href="{{ maps_url }}" target="_blank" rel="noopener" style="margin-top:10px;">Go to Maps App</a>
-        {% if failed_url %}<a href="{{ failed_url }}" class="btn btn-danger btn-block" style="margin-top:8px;">Report a problem</a>{% endif %}
-    {% endif %}
-
-    {# ----- camera (task-camera.html) ----- #}
-    {% if not pickup and stop.status == 'in_transit' %}
-        <div class="camera-overlay" data-camera hidden>
-            <div class="camera-view">
-                <video data-camera-video playsinline muted autoplay></video>
-                <button type="button" class="camera-close" data-camera-close aria-label="Cancel">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                </button>
-                <div class="camera-hint" data-camera-hint>Starting camera…</div>
-                <div class="camera-stamp">
-                    <div data-camera-time>—</div>
-                    <div>{{ stop.address }}</div>
-                </div>
-            </div>
-            <div class="camera-controls">
-                <button type="button" class="camera-shutter" data-camera-shutter aria-label="Capture photo" disabled></button>
-            </div>
-        </div>
-    {% endif %}
-
-    {# ----- popups ----- #}
-    <div class="confirm-overlay" data-modal="confirm" hidden>
-        <div class="confirm-modal">
-            <h3>Confirm status change</h3>
-            <p data-confirm-body>Change order status?</p>
-            <div class="confirm-modal-actions">
-                <button type="button" class="btn btn-secondary" data-close>Cancel</button>
-                <button type="button" class="btn btn-primary" data-confirm-ok>Confirm</button>
-            </div>
-        </div>
-    </div>
-
-    {% if pickup %}
-        <div class="confirm-overlay" data-modal="left-behind" hidden>
-            <div class="confirm-modal">
-                <h3 data-left-behind-title>Are you sure? <strong>0</strong> orders not picked up.</h3>
-                <div class="form-group">
-                    <label for="left-behind-note">Reason Required:</label>
-                    <textarea id="left-behind-note" data-left-behind-note rows="2" placeholder="What's going on with them?"></textarea>
-                </div>
-                {# GitHub #23: a left-out order leaves this stop either way; Restart sends it back to Dispatch's Order Pool to be rescheduled. #}
-                <p class="pickup-confirm-unchecked-hint">Tap to either <strong>Restart</strong> (back to Dispatch to reschedule), or <strong>Fully Fail</strong> it for Dispatch to manage.</p>
-                <div class="pickup-confirm-unchecked-list" data-left-behind-list></div>
-                <div class="confirm-modal-actions">
-                    <button type="button" class="btn btn-secondary" data-close>Cancel</button>
-                    <button type="button" class="btn btn-primary" data-left-behind-ok disabled>Mark Picked Up</button>
-                </div>
-            </div>
-        </div>
-    {% endif %}
-
-    <div class="confirm-overlay" data-modal="order-info" hidden>
-        <div class="confirm-modal">
-            <h3 data-order-info-title>Order</h3>
-            <div class="order-info-rows" data-order-info-sizes></div>
-            <div class="order-info-rows">
-                <div class="order-info-row"><span>Sender</span><span data-order-info-sender></span></div>
-                <div class="order-info-row"><span>Recipient</span><span data-order-info-recipient></span></div>
-            </div>
-            <div class="confirm-modal-actions">
-                <button type="button" class="btn btn-secondary" data-close>Close</button>
-                {% if pickup and stop.status == 'picking_up' %}<button type="button" class="btn btn-primary" data-order-info-toggle>Mark Picked Up</button>{% endif %}
-            </div>
-        </div>
-    </div>
-
-    <div class="confirm-overlay" data-modal="orders" hidden>
-        <div class="confirm-modal">
-            <h3>{{ pickup ? 'Orders in this pickup' : 'Orders in this drop-off' }}</h3>
-            <div class="order-info-rows" style="max-height:420px;overflow-y:auto;">
-                {% for o in orders %}
-                    <div class="order-info-row" style="display:block;">
-                        <div style="display:flex;justify-content:space-between;"><strong>{{ o.name }}</strong><span class="text-faint">{{ o.package_count ?? 0 }} item{{ (o.package_count ?? 0) == 1 ? '' : 's' }}</span></div>
-                        <div class="text-faint">Sender: {{ o.sender ?? '—' }} · Recipient: {{ o.recipient ?? '—' }}</div>
-                    </div>
-                {% endfor %}
-            </div>
-            <div class="confirm-modal-actions"><button type="button" class="btn btn-secondary" data-close>Close</button></div>
-        </div>
-    </div>
-
-    {% for id, c in {'person-0': pickup ? pickup_contact : null, 'person-recipient': recipient, 'person-sender': sender} %}
-        {% if c %}
-            <div class="confirm-overlay" data-modal="{{ id }}" hidden>
-                <div class="confirm-modal">
-                    <h3>{{ c.name }}</h3>
-                    <div class="confirm-modal-actions">
-                        {% if c.phone ?? null %}
-                            <a href="tel:{{ c.phone }}" class="btn btn-secondary">{{ icon.phone() }} Call</a>
-                            <a href="sms:{{ c.phone }}" class="btn btn-secondary">{{ icon.text() }} Text</a>
-                        {% else %}
-                            <span class="text-faint">No phone number on file.</span>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-        {% endif %}
-    {% endfor %}
-
-    {% if pickup %}
-        {% for mode in ['call', 'text'] %}
-            {% set scheme = mode == 'call' ? 'tel:' : 'sms:' %}
-            <div class="confirm-overlay" data-modal="picker-{{ mode }}" hidden>
-                <div class="confirm-modal">
-                    <h3>{{ mode == 'call' ? 'Call' : 'Text' }}</h3>
-                    <div class="contact-list">
-                        {% if pickup_contact %}
-                            <div class="contact-row">
-                                <span class="contact-name">{{ stop.business ?? '' }}{% if stop.business ?? null %} {% endif %}<span class="contact-role">· {{ pickup_contact.name }}</span></span>
-                                {% if pickup_contact.phone ?? null %}<a href="{{ scheme }}{{ pickup_contact.phone }}" class="contact-call-btn" aria-label="{{ pickup_contact.name }}">{{ mode == 'call' ? icon.phone() : icon.text() }}</a>{% endif %}
-                            </div>
-                        {% endif %}
-                        {% for o in orders %}
-                            <div class="contact-order-label">{{ o.name }}</div>
-                            {% for role, person in {'Sender': [o.sender ?? null, o.sender_phone ?? null], 'Recipient': [o.recipient ?? null, o.recipient_phone ?? null]} %}
-                                <div class="contact-row">
-                                    <span class="contact-name">{{ role }} <span class="contact-role">· {{ person[0] ?? '—' }}</span></span>
-                                    {% if person[1] %}<a href="{{ scheme }}{{ person[1] }}" class="contact-call-btn" aria-label="{{ person[0] }}">{{ mode == 'call' ? icon.phone() : icon.text() }}</a>{% endif %}
-                                </div>
-                            {% endfor %}
-                        {% endfor %}
-                    </div>
-                </div>
-            </div>
-        {% endfor %}
-    {% endif %}
-
-{% else %}
-    {# ---------------- Finished stop ---------------- #}
-    {% set failed = stop.status == 'failed' %}
-    <div style="display:flex;align-items:flex-start;gap:10px;">
-        <div style="flex:1;">
-            <h1 style="margin:0 0 4px;">{{ stop.address }}</h1>
-            <div>{{ order_line }}</div>
-        </div>
-        <span class="badge {{ failed ? 'badge-danger' : 'badge-success' }}" style="margin-top:4px;">{{ failed ? 'Failed' : 'Done' }}</span>
-    </div>
-
-    <div class="info-card">
-        <h3>{{ pickup ? 'Pickup details' : 'Delivery details' }}</h3>
-        {% if pickup %}
-            {% if stop.business ?? null %}<div class="info-row"><span class="info-label">Business</span><span class="info-value">{{ stop.business }}</span></div>{% endif %}
-        {% else %}
-            {% if recipient %}<div class="info-row"><span class="info-label">Recipient</span><span class="info-value">{{ recipient.name }}</span></div>{% endif %}
-            {% if sender %}<div class="info-row"><span class="info-label">Sender</span><span class="info-value">{{ sender.name }}</span></div>{% endif %}
-        {% endif %}
-        {% set last_step = (stop.timeline ?? [])|last %}
-        {% set completed = stop.proof.completed_at ?? (last_step ? last_step.at : null) %}
-        <div class="info-row"><span class="info-label">{{ failed ? 'Failed' : 'Completed' }}</span><span class="info-value">{{ completed|driver_time }}</span></div>
-    </div>
-
-    <div class="info-card">{{ _self.stepper(steps, labels, times) }}</div>
-
-    {% if not pickup and (stop.proof ?? null) %}
-        {% set p = stop.proof %}
-        <div class="info-card" data-proof-of-delivery>
-            <h3>{{ (p.outcome ?? '') == 'failed' ? 'Failure report' : 'Proof of delivery' }}</h3>
-            {% if (p.photo_count ?? 0) > 0 %}
-                {# The uploaded photos; one still uploading from the phone keeps an empty box until it arrives. #}
-                {% set shown = (p.photos ?? [])|slice(0, 3) %}
-                <div class="photo-grid" data-proof-photos>
-                    {% for id in shown %}<a class="photo-thumb filled" href="{{ path('app_driver_photo', {photoId: id}) }}" target="_blank" rel="noopener"><img src="{{ path('app_driver_photo', {photoId: id}) }}" alt="Proof photo {{ loop.index }}" loading="lazy"></a>{% endfor %}
-                    {% if min(3, p.photo_count) > shown|length %}{% for i in 1..(min(3, p.photo_count) - shown|length) %}<div class="photo-thumb" title="Still uploading"></div>{% endfor %}{% endif %}
-                </div>
-            {% endif %}
-            {% if p.left_at ?? null %}<div class="form-group"><label>Where was it left?</label><div>{{ p.left_at }}</div></div>{% endif %}
-            {% if p.customer_contact ?? null %}<div class="form-group"><label>Customer contacted?</label><div><strong>{{ {not_needed: 'Not needed', called: 'Called', texted: 'Texted'}[p.customer_contact] ?? p.customer_contact }}</strong></div></div>{% endif %}
-            {% if p.recipient_name ?? null %}<div class="form-group"><label>Recipient name (optional)</label><div>{{ p.recipient_name }}</div></div>{% endif %}
-            {% if p.failure_reason ?? null %}<div class="form-group"><label>Reason</label><div>{{ p.failure_reason|replace({'_': ' '})|capitalize }}</div></div>{% endif %}
-            {% if p.note ?? null %}<div class="form-group"><label>Note</label><div>{{ p.note }}</div></div>{% endif %}
-        </div>
-    {% endif %}
-
-    {# Filled from the Picked Up answer by stop.js (kept for this browser tab, like the Android screen state). #}
-    {% if pickup %}
-        <div class="info-card" data-pickup-summary hidden>
-            <h3>Pickup Result</h3>
-            <div data-pickup-summary-content></div>
-        </div>
-    {% endif %}
-
-    <p class="text-faint" style="margin-top:12px;font-size:14.5px;line-height:20px;">
-        {%- if not pickup and failed -%}Reported to Dispatch — see other stops on the
-        {%- elseif not pickup -%}Delivered — see other stops on the
-        {%- elseif orders|length == 2 -%}Both orders are now In Transit for delivery — see their delivery stops on the
-        {%- elseif orders|length > 2 -%}All orders are now In Transit for delivery — see their delivery stops on the
-        {%- else -%}The order is now In Transit for delivery — see its delivery stop on the
-        {%- endif %} <a href="{{ path('app_driver_tasks') }}">task list</a>.
-    </p>
-    {# Straight on to the next unfinished stop on the route (GitHub #19). #}
-    {% if stop.next_stop ?? null %}
-        <a class="btn btn-primary btn-block" href="{{ path('app_driver_stop', {stopKey: stop.next_stop.stop_key}) }}" style="margin-top:12px;">Next stop: {{ stop.next_stop.leg == 'pickup' ? 'PICK' : 'DROP' }} {{ stop.next_stop.address }} →</a>
-    {% endif %}
-{% endif %}
-
-{# Always a plain way out, whatever state the stop is in (app.js points it at the same task view as the arrow). #}
-<a class="btn btn-secondary btn-block" href="{{ path('app_driver_tasks') }}" data-back-to-tasks style="margin-top:12px;">{{ icon.back(16) }} Back to tasks</a>
 {% endblock %}
 
-{% block page_scripts %}
-    <script src="/driver-app/js/stop.js" defer></script>
-{% endblock %}
+{% block page_scripts %}<script src="/driver-app/js/stop.js" defer></script>{% endblock %}

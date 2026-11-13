@@ -7,17 +7,14 @@ namespace App\Config;
 use Symfony\Component\DependencyInjection\EnvVarProcessorInterface;
 
 /**
- * `%env(regex_quote:NAME)%` — an env value made safe to place inside a regular expression.
- *
- * framework.trusted_hosts takes regexes. With a domain pasted in as-is, every "." matched any character, so
- * `driver-fvstexpress-app-dev-rp017-webhelplogin.com` (registrable by anyone) passed as a trusted host, and a
- * forgot-password post carrying it got the victim's reset link built on the attacker's domain (audit #1).
+ * `%env(regex_quote:APP_DOMAIN)%`: the value with regex characters escaped, for trusted_hosts. Unescaped, every
+ * "." in the domain would match any character, so a lookalike host (dots replaced by "-") would pass.
  */
 final class RegexQuoteEnvVarProcessor implements EnvVarProcessorInterface
 {
     public function getEnv(string $prefix, string $name, \Closure $getEnv): string
     {
-        return preg_quote((string) $getEnv($name), '{');
+        return preg_quote((string) $getEnv($name), '#');
     }
 
     public static function getProvidedTypes(): array

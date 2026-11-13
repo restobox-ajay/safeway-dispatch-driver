@@ -1,0 +1,36 @@
+{% extends 'driver/app.html.twig' %}
+{% import 'driver/_stop.html.twig' as ui %}
+{# Figma "Completed Deliveries" (Completed Destinations): Company, #stop, Date / Time Completed, Type, Products, Details. #}
+
+{% block title %}Completed Destinations — Safeway Driver{% endblock %}
+{% block crumbs %} / <span>Completed Destinations</span>{% endblock %}
+{% block page_title %}Completed Destinations{% endblock %}
+
+{% block content %}
+    <div class="card list-card">
+        {% for s in cards %}
+            <article class="stop-card" data-stop-id="{{ s.id }}">
+                <div class="field">
+                    <div class="field-label row-between"><span>Company:</span><span class="stop-no">#{{ s.position }}</span></div>
+                    <div class="field-value">{{ ui.company(s) }}</div>
+                </div>
+                <div class="field">
+                    <div class="field-label">Date, Time Completed:</div>
+                    <div class="field-value">{{ s.completed_at ?: 'Waiting to send' }} {{ ui.status(s) }}</div>
+                </div>
+                <div class="field">
+                    <div class="field-label">Type:</div>
+                    <div class="field-value">{{ s.types ?: (s.warehouse ? 'Reload' : '—') }}</div>
+                </div>
+                <div class="field">
+                    <div class="field-label">Products:</div>
+                    <div class="field-value">{{ ui.products(s) }}</div>
+                </div>
+                <a class="btn btn-primary btn-block" href="{{ path('app_driver_stop', {id: s.id}) }}">Details</a>
+            </article>
+        {% else %}
+            <p class="empty">Nothing completed yet today.</p>
+        {% endfor %}
+        {% if total > 0 %}{{ ui.pager('app_driver_completed', page, pages, from, to, total) }}{% endif %}
+    </div>
+{% endblock %}

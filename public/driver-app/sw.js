@@ -1,20 +1,16 @@
-/* FVST Express Driver — service worker (FEATURE-194/203, scope /driver/).
+/* Safeway Tire Driver — service worker (scope /driver/).
    Pages: network first, the last copy when there's no signal (task list and stop details stay readable).
    App files: cache first. API calls (/driver/api/), the login page and logout are never cached.
    Taps made offline are queued by the page itself (IndexedDB, app.js), not here. */
 "use strict";
 
-var VERSION = "fvst-driver-fc29f95523a9"; // hash of the STATIC files — ServiceWorkerVersionTest gives the new value
+var VERSION = "swd-driver-1";
 var STATIC = [
-  "/driver-app/css/style.css",
-  "/driver-app/css/app.css",
-  "/driver-app/css/route-map.css",
+  "/driver-app/css/safeway.css",
   "/driver-app/js/app.js",
   "/driver-app/js/stop.js",
-  "/driver-app/js/failed.js",
-  "/driver-app/js/route-map.js", // GitHub #48
-  "/driver-app/img/dm-car.svg",
-  "/driver-app/img/icon.svg",
+  "/driver-app/img/safeway-logo.png",
+  "/driver-app/img/icon-192.png",
 ];
 
 self.addEventListener("install", function (event) {
@@ -64,11 +60,11 @@ self.addEventListener("fetch", function (event) {
       return caches.match(req).then(function (hit) {
         return hit || new Response(
           '<!DOCTYPE html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
-          '<link rel="stylesheet" href="/driver-app/css/style.css"><link rel="stylesheet" href="/driver-app/css/app.css">' +
-          '<div class="phone-frame-wrap"><div class="phone-frame"><div class="app-screen"><div class="app-content" style="text-align:center;padding-top:48px;">' +
+          '<link rel="stylesheet" href="/driver-app/css/safeway.css">' +
+          '<main class="page"><div class="card center">' +
           "<p>No connection to Dispatch. Check your signal and try again.</p>" +
-          '<a class="btn btn-primary" href="">Try again</a> <a class="btn btn-secondary" href="/driver/tasks">Task list</a>' +
-          "</div></div></div></div>",
+          '<a class="btn btn-primary" href="">Try again</a> <a class="btn btn-secondary" href="/driver/tasks">Upcoming Destinations</a>' +
+          "</div></main>",
           { status: 503, headers: { "Content-Type": "text/html; charset=utf-8" } }
         );
       });

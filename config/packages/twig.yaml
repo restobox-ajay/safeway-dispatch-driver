@@ -1,12 +1,5 @@
 twig:
     file_name_pattern: '*.twig'
-    globals:
-        # Driver web app: "Call Dispatch" number until the admin API's /me sends one (docs/DRIVER_APP.md).
-        dispatch_phone_fallback: '%env(DISPATCH_PHONE)%'
-        # Driver web app: the hidden GPS tester (fake location pings). Off unless DRIVER_GPS_TESTER=1 — test servers only.
-        driver_gps_tester: '%env(bool:default::DRIVER_GPS_TESTER)%'
-        # Driver web app: the business timezone, for "now" on the task cards day bar (the server runs in UTC).
-        driver_timezone: '%env(default:driver_timezone_default:DRIVER_TIMEZONE)%'
 
 when@test:
     twig:

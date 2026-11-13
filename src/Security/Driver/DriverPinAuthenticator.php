@@ -6,7 +6,6 @@ namespace App\Security\Driver;
 
 use App\Driver\Api\DriverApiClient;
 use App\Driver\Api\DriverApiException;
-use App\Session\SessionTtlResolver;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -24,9 +23,9 @@ use Symfony\Component\Security\Http\EntryPoint\AuthenticationEntryPointInterface
 use Symfony\Component\Security\Http\SecurityRequestAttributes;
 
 /**
- * Driver login (ADR-074): the login (employee card # or phone) and PIN are checked by the fvstexpress-admin
- * API, with its lockouts and rate limit; this app never sees or stores the PIN. A driver stays signed in
- * for long: the session gets the long lifetime (SessionTtlResolver, sliding on activity).
+ * Driver login: the phone number or employee number and the PIN are checked by the Safeway Dispatch Driver API
+ * (POST /auth/login), with its lockouts and rate limit; this app never sees or stores the PIN. The driver stays
+ * signed in as long as the session cookie lives (framework.session.cookie_lifetime, 30 days).
  */
 final class DriverPinAuthenticator extends AbstractAuthenticator implements AuthenticationEntryPointInterface
 {
@@ -38,7 +37,6 @@ final class DriverPinAuthenticator extends AbstractAuthenticator implements Auth
     public function __construct(
         private readonly DriverApiClient $api,
         private readonly UrlGeneratorInterface $urls,
-        private readonly SessionTtlResolver $ttl,
     ) {}
 
     public function supports(Request $request): bool
@@ -72,10 +70,7 @@ final class DriverPinAuthenticator extends AbstractAuthenticator implements Auth
 
     public function onAuthenticationSuccess(Request $request, TokenInterface $token, string $firewallName): ?Response
     {
-        $session = $request->getSession();
-        $session->set(SessionTtlResolver::LONG_SESSION_KEY, true);
-        $session->remove(SecurityRequestAttributes::LAST_USERNAME);
-        $this->ttl->reset();
+        $request->getSession()->remove(SecurityRequestAttributes::LAST_USERNAME);
 
         return new RedirectResponse($this->urls->generate(self::HOME_ROUTE));
     }
@@ -91,7 +86,7 @@ final class DriverPinAuthenticator extends AbstractAuthenticator implements Auth
     {
         $login = $this->urls->generate(self::LOGIN_ROUTE);
         // The page's fetch() would follow a redirect to the 200 login page and take it for success (the offline
-        // queue would drop its taps): JSON calls get the 401 they already handle (app.js FVST.call).
+        // queue would drop its taps): JSON calls get the 401 they already handle (app.js SWD.call).
         if (str_starts_with($request->getPathInfo(), '/driver/api/')) {
             return new JsonResponse(['error' => DriverApiException::SESSION_EXPIRED, 'code' => 'SESSION_EXPIRED', 'redirect' => $login], Response::HTTP_UNAUTHORIZED);
         }

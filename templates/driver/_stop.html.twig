@@ -1,0 +1,43 @@
+{# Pieces shared by the driver pages (Figma driver frames). `s` is a StopView array. #}
+
+{% macro company(s) %}
+    {%- if s.maps_url -%}
+        <a class="field-link" href="{{ s.maps_url }}" target="_blank" rel="noopener noreferrer">{{ s.company }}</a>
+    {%- else -%}{{ s.company }}{%- endif -%}
+{% endmacro %}
+
+{% macro address(s) %}
+    {%- if s.maps_url and s.address -%}
+        <a class="field-link" href="{{ s.maps_url }}" target="_blank" rel="noopener noreferrer" aria-label="Directions to {{ s.address }}">{{ s.address }}</a>
+    {%- else -%}{{ s.address ?: '—' }}{%- endif -%}
+{% endmacro %}
+
+{% macro products(s) %}
+    {%- for p in s.products -%}
+        <div>{{ p.name }} <strong>X {{ p.quantity }}</strong></div>
+    {%- else -%}
+        {%- if s.reload %}<div>{{ s.reload }}</div>{% else %}<div class="text-faint">—</div>{% endif -%}
+    {%- endfor -%}
+{% endmacro %}
+
+{% macro status(s) %}
+    {%- if s.status_label -%}
+        <span class="status-chip status-{{ s.done ? (s.status_label == 'Completed' ? 'ok' : 'bad') : 'way' }}">{{ s.status_label }}</span>
+    {%- endif -%}
+{% endmacro %}
+
+{# "Showing 1 to 10 of N entries" + Previous / numbers / Next (Figma lists). #}
+{% macro pager(route, page, pages, from, to, total) %}
+    <div class="pager">
+        <p class="pager-info">Showing {{ from }} to {{ to }} of {{ total }} entries</p>
+        {% if pages > 1 %}
+        <nav class="pager-links" aria-label="Pages">
+            {% if page > 1 %}<a href="{{ path(route, {page: page - 1}) }}">Previous</a>{% else %}<span class="disabled">Previous</span>{% endif %}
+            {% for n in 1..pages %}
+                {% if n == page %}<span class="current">{{ n }}</span>{% else %}<a href="{{ path(route, {page: n}) }}">{{ n }}</a>{% endif %}
+            {% endfor %}
+            {% if page < pages %}<a href="{{ path(route, {page: page + 1}) }}">Next</a>{% else %}<span class="disabled">Next</span>{% endif %}
+        </nav>
+        {% endif %}
+    </div>
+{% endmacro %}

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Driver\Api;
 
-use App\Entity\DriverApiSession;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\Mime\Part\DataPart;
@@ -157,7 +156,7 @@ final class DriverApiClient
             return $o;
         };
 
-        if ($row->getAccessExpiresAt()->getTimestamp() - time() <= self::REFRESH_MARGIN_SECONDS) {
+        if ($row->getAccessExpiresAt() - time() <= self::REFRESH_MARGIN_SECONDS) {
             $row = $this->renew($row);
         }
         try {
@@ -169,15 +168,14 @@ final class DriverApiClient
             $row = $this->renew($row);
             $result = $this->send($method, $path, $build(), $row, null, $raw);
         }
-        $this->tokens->touch($row);
 
         return $result;
     }
 
-    private function renew(DriverApiSession $row): DriverApiSession
+    private function renew(DriverTokens $row): DriverTokens
     {
         try {
-            return $this->tokens->refresh($row, $row->getAccessToken(), function (string $refreshToken) use ($row): array {
+            return $this->tokens->refresh($row, function (string $refreshToken) use ($row): array {
                 $res = $this->send('POST', 'auth/refresh', ['json' => ['refresh_token' => $refreshToken], 'timeout' => 10, 'max_duration' => 15], null, $row->getDeviceId());
                 if (!\is_array($res) || !\is_string($res['access_token'] ?? null) || !\is_string($res['refresh_token'] ?? null)) {
                     throw DriverApiException::sessionExpired();
@@ -196,7 +194,7 @@ final class DriverApiClient
     }
 
     /** @param array<string, mixed> $options */
-    private function send(string $method, string $path, array $options, ?DriverApiSession $auth, ?string $deviceId = null, bool $raw = false): mixed
+    private function send(string $method, string $path, array $options, ?DriverTokens $auth, ?string $deviceId = null, bool $raw = false): mixed
     {
         if (trim($this->baseUrl) === '') {
             throw new \LogicException('DRIVER_API_BASE_URL is not set: point it at safeway-dispatch\'s /driver-api/v1/ (see docs/DRIVER_APP.md).');

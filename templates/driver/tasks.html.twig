@@ -1,67 +1,76 @@
 {% extends 'driver/app.html.twig' %}
+{% import 'driver/_stop.html.twig' as ui %}
+{#
+    Figma "List Deliveries" (Upcoming Destinations), the spec's main page: the next deliveries, starting from the
+    immediate next, with the estimated time. Each card: Company (opens Google Maps), #stop, Address (Google Maps),
+    Type, Products, and Details / Add Note / Complete. Above them each route of the day with Start / Finish.
+#}
 
-{% block title %}Tasks · FVST Driver{% endblock %}
-
-{% block head %}
-    {# GitHub #48: the route map is the default task view; this list opens when the driver chose it (the header toggle,
-       remembered on this phone). Today's list only — All / Completed are list-only views. #}
-    {% if view == 'today' %}
-        <script>try { if (localStorage.getItem("fvst-task-view") !== "list") location.replace({{ path('app_driver_route')|json_encode|raw }}); } catch (e) { /* storage blocked: stay on the list */ }</script>
-    {% endif %}
-{% endblock %}
-
-{% block topbar_right %}
-    <a class="topbar-icon-btn" href="{{ path('app_driver_route') }}" aria-label="Show map" title="Show map" data-task-view="map">{# GitHub #48 #}
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s7-7.58 7-12a7 7 0 1 0-14 0c0 4.42 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/></svg>
-    </a>
-{% endblock %}
-
-{% block above_content %}
-    <div class="segmented">
-        {% for key, label in views %}
-            <a href="{{ path('app_driver_tasks', {view: key}) }}"{{ key == view ? ' class="active" aria-current="page"' }}>{{ label }}</a>
-        {% endfor %}
-    </div>
-{% endblock %}
+{% block title %}Upcoming Destinations — Safeway Driver{% endblock %}
+{% block crumbs %} / <span>Upcoming Destinations</span>{% endblock %}
+{% block page_title %}Upcoming Destinations{% endblock %}
 
 {% block content %}
-    <div data-segment-panel="{{ view }}">
-    {% if empty %}
-        <p class="text-faint" style="text-align:center;margin-top:40px;">
-            {{ view == 'completed' ? 'Nothing completed yet today.' : 'No tasks right now. Pull down to refresh.' }}
-        </p>
-    {% else %}
-        {% for day in days %}
-            {% if view == 'all' %}
-                <div class="task-list-date-header">{{ day.label|upper }}</div>
-            {% endif %}
-            <div class="task-list">
-                {% for stop in day.stops %}
-                    {% set bar = driver_day_bar(stop.window.start ?? null, stop.window.end ?? null, date('now', driver_timezone)) %}
-                    <a class="task-card" href="{{ path('app_driver_stop', {stopKey: stop.stop_key}) }}" style="text-decoration:none;color:inherit;">
-                        <div class="task-card-top">
-                            {% if stop.urgent ?? false %}<span class="urgency-flag" title="Urgent" aria-label="Urgent">⚑</span>{% endif %}
-                            {% if stop.leg == 'pickup' %}
-                                <span class="kc-leg-tag kc-leg-pickup" title="Pickup" aria-label="Pickup">⮝</span>
-                            {% else %}
-                                <span class="kc-leg-tag kc-leg-dropoff" title="Dropoff" aria-label="Dropoff">⮟</span>
-                            {% endif %}
-                            {# With JOB ids, the stable reference (GitHub #27). #}
-                            <span class="task-card-order">{{ (stop.orders ?? [])|slice(0, 2)|map(o => o.name ~ ' · ' ~ o.reference)|join(' & ') }}{% if (stop.orders ?? [])|length > 2 %} +{{ (stop.orders|length) - 2 }}{% endif %}</span>
-                            <span class="task-card-chevron">›</span>
-                        </div>
-                        {% if stop.business ?? null %}<div class="task-card-sub">{{ stop.business }}</div>{% endif %}
-                        <div class="task-card-addr">{{ stop.address }}{% if stop.contact ?? null %} <span class="task-card-sub">· {{ stop.contact }}</span>{% endif %}</div>
-                        <div class="task-card-footer">
-                            <span class="task-card-time">{{ stop|driver_card_time }}</span>
-                            {% if bar %}
-                                <span class="day-graph-bar"><span class="dgb-window" style="left:{{ bar.left }}%;width:{{ bar.width }}%;"></span><span class="dgb-now" style="left:{{ bar.now }}%;"></span></span>
-                            {% endif %}
-                        </div>
-                    </a>
-                {% endfor %}
+    {% for r in routes %}
+        <section class="card route-card" data-route="{{ r.ref }}">
+            <div class="route-head">
+                <div>
+                    <div class="route-name">{{ r.name }}</div>
+                    <div class="text-faint">{{ r.status|capitalize }}{{ r.truck ? ' · ' ~ r.truck }} · {{ r.left }} left</div>
+                </div>
+                {% if 'start' in r.next_allowed %}
+                    <button type="button" class="btn btn-primary btn-sm" data-route-tap="start" data-route-ref="{{ r.ref }}">Start Route</button>
+                {% elseif 'finish' in r.next_allowed %}
+                    <button type="button" class="btn btn-success btn-sm" data-route-tap="finish" data-route-ref="{{ r.ref }}">Finish Route</button>
+                {% endif %}
             </div>
+            {% if r.status == 'planned' and r.start_blocked and 'start' not in r.next_allowed %}
+                <p class="alert alert-warning mb0">{{ r.start_blocked }}</p>
+            {% endif %}
+        </section>
+    {% endfor %}
+
+    <div class="card list-card">
+        {% for s in cards %}
+            <article class="stop-card{{ s.id == next_id ? ' is-next' }}" data-stop-id="{{ s.id }}">
+                <div class="field">
+                    <div class="field-label row-between">
+                        <span>Company:</span>
+                        <span class="stop-no">{% if s.id == next_id %}<span class="next-tag">Next</span> {% endif %}#{{ s.position }}</span>
+                    </div>
+                    <div class="field-value">{% if s.rush %}<span class="rush" title="Rush">⚑</span> {% endif %}{{ ui.company(s) }}</div>
+                </div>
+                <div class="field">
+                    <div class="field-label">Address:</div>
+                    <div class="field-value">{{ ui.address(s) }}</div>
+                </div>
+                <div class="field">
+                    <div class="field-label">Type:</div>
+                    <div class="field-value">{{ s.types ?: (s.warehouse ? 'Reload' : '—') }}</div>
+                </div>
+                <div class="field">
+                    <div class="field-label">Products:</div>
+                    <div class="field-value">{{ ui.products(s) }}</div>
+                </div>
+                <div class="field">
+                    <div class="field-label">Estimated Time:</div>
+                    <div class="field-value">ETA {{ s.eta ?: '–' }}{{ s.window ? ' · window ' ~ s.window }} {{ ui.status(s) }}</div>
+                </div>
+                <div class="card-buttons">
+                    <a class="btn btn-primary btn-sm" href="{{ path('app_driver_stop', {id: s.id}) }}">Details</a>
+                    {% if 'note' in s.next_allowed %}
+                        <a class="btn btn-warning btn-sm" href="{{ path('app_driver_note', {id: s.id}) }}">Add Note</a>
+                    {% endif %}
+                    {% if 'complete' in s.next_allowed %}
+                        <a class="btn btn-success btn-sm" href="{{ path('app_driver_complete', {id: s.id}) }}">Complete</a>
+                    {% endif %}
+                </div>
+            </article>
+        {% else %}
+            <p class="empty">{{ routes is empty ? 'No route for you today.' : 'All stops are done.' }}</p>
         {% endfor %}
-    {% endif %}
+        {% if total > 0 %}{{ ui.pager('app_driver_tasks', page, pages, from, to, total) }}{% endif %}
     </div>
 {% endblock %}
+
+{% block page_scripts %}<script src="/driver-app/js/stop.js" defer></script>{% endblock %}

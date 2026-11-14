@@ -745,6 +745,29 @@
     });
   });
 
+  // ---------------------------------------------------------------- live list (D-116)
+  // A page that shows Dispatch's list (Upcoming Destinations) asks for itself again every 45 seconds and when the app comes back to the
+  // front, and redraws the list when Dispatch's answer changed: a cancelled or moved destination leaves the screen without a reload.
+  var live = document.querySelector("[data-live-refresh]");
+  if (live) {
+    var checking = false;
+    var normal = function (html) { return html.replace(/\s+/g, " ").trim(); };
+    var recheck = function () {
+      if (checking || document.hidden || !navigator.onLine) return;
+      checking = true;
+      fetch(location.href, { credentials: "same-origin", cache: "no-store", headers: { Accept: "text/html" } }).then(function (res) {
+        if (!res.ok || res.redirected) return null; // signed out or an error page: keep what is on screen
+        return res.text();
+      }).then(function (html) {
+        if (!html) return;
+        var fresh = new DOMParser().parseFromString(html, "text/html").querySelector("[data-live-refresh]");
+        if (fresh && normal(fresh.innerHTML) !== normal(live.innerHTML)) live.innerHTML = fresh.innerHTML;
+      }).catch(function () { /* no signal: the next check tries again */ }).then(function () { checking = false; });
+    };
+    setInterval(recheck, 45000);
+    document.addEventListener("visibilitychange", function () { if (!document.hidden) recheck(); });
+  }
+
   // ---------------------------------------------------------------- start-up
   window.addEventListener("online", function () { SWD.sync(); flushPositions(); });
   SWD.sync();

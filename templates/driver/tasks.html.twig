@@ -11,6 +11,7 @@
 {% block page_title %}Upcoming Destinations{% endblock %}
 
 {% block content %}
+<div data-live-refresh>{# D-116: app.js redraws this part when Dispatch's answer changed #}
     {% for r in routes %}
         <section class="card route-card" data-route="{{ r.ref }}">
             <div class="route-head">
@@ -72,6 +73,7 @@
         {% endfor %}
         {% if total > 0 %}{{ ui.pager('app_driver_tasks', page, pages, from, to, total) }}{% endif %}
     </div>
+</div>
 {% endblock %}
 
 {% block page_scripts %}<script src="/driver-app/js/stop.js" defer></script>{% endblock %}
